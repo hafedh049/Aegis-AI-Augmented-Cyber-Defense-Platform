@@ -1,0 +1,89 @@
+---
+- name: Deploy MongoDB in Docker
+  hosts: Vulner
+  become: true
+  vars:
+    mongo_container_name: mongo
+    mongo_image: mongo:6.0
+    mongo_port: 27017
+    mongo_root_user: root
+    mongo_root_password: rootpass
+    mongo_db: mydb
+    mongo_volume: mongo-data
+    mongo_network: mongo-net
+
+  tasks:
+    # ---------------------------
+    # Ensure Docker & Compose installed
+    # ---------------------------
+    - name: Ensure apt cache is updated
+      apt:
+        update_cache: true
+
+    - name: Ensure Docker is installed
+      apt:
+        name: docker.io
+        state: present
+
+    - name: Ensure Docker Compose is installed
+      apt:
+        name: docker-compose
+        state: present
+
+    - name: Ensure Docker service is running
+      systemd:
+        name: docker
+        state: started
+        enabled: true
+
+    # ---------------------------
+    # Create Docker network
+    # ---------------------------
+    - name: Create MongoDB Docker network
+      docker_network:
+        name: "{{ mongo_network }}"
+        state: present
+
+    # ---------------------------
+    # Deploy MongoDB container
+    # ---------------------------
+    - name: Run MongoDB container
+      docker_container:
+        name: "{{ mongo_container_name }}"
+        image: "{{ mongo_image }}"
+        state: started
+        restart_policy: always
+        published_ports:
+          - "{{ mongo_port }}:27017"
+        env:
+          MONGO_INITDB_ROOT_USERNAME: "{{ mongo_root_user }}"
+          MONGO_INITDB_ROOT_PASSWORD: "{{ mongo_root_password }}"
+          MONGO_INITDB_DATABASE: "{{ mongo_db }}"
+        volumes:
+          - "{{ mongo_volume }}:/data/db"
+        networks:
+          - name: "{{ mongo_network }}"
+
+    # ---------------------------
+    # Wait for MongoDB to be ready
+    # ---------------------------
+    - name: Wait for MongoDB to start
+      wait_for:
+        host: "127.0.0.1"
+        port: "{{ mongo_port }}"
+        delay: 5
+        timeout: 60
+
+    # ---------------------------
+    # Test MongoDB (list databases)
+    # ---------------------------
+    - name: Verify MongoDB is accessible
+      command: >
+        docker exec {{ mongo_container_name }}
+        mongosh -u {{ mongo_root_user }} -p {{ mongo_root_password }} --authenticationDatabase admin
+        --eval "db.adminCommand('listDatabases')"
+      register: mongo_test
+
+    - name: Show MongoDB test output
+      debug:
+        var: mongo_test.stdout

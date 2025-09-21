@@ -1,0 +1,93 @@
+---
+- name: Deploy DVWA using Docker
+  hosts: Vulner
+  become: true
+  vars:
+    dvwa_user: admin
+    dvwa_pass: password
+    dvwa_port: 8080
+    db_port: 3307
+    db_root_password: root
+    db_name: dvwa
+    db_user: dvwa_user
+    db_password: dvwa_pass
+  tasks:
+    # ---------------------------
+    # Install Docker and Docker Compose
+    # ---------------------------
+    - name: Ensure Docker is installed
+      apt:
+        name: docker.io
+        state: present
+        update_cache: true
+
+    - name: Ensure Docker Compose plugin is installed
+      apt:
+        name: docker-compose
+        state: present
+        update_cache: true
+
+    - name: Ensure Docker service is running
+      systemd:
+        name: docker
+        state: started
+        enabled: true
+
+    # ---------------------------
+    # Create docker-compose.yml for DVWA
+    # ---------------------------
+    - name: Create DVWA docker-compose.yml
+      copy:
+        dest: /root/dvwa-docker-compose.yml
+        content: |
+          version: '3.8'
+          services:
+            dvwa:
+              image: vulnerables/web-dvwa
+              container_name: dvwa
+              restart: always
+              ports:
+                - "{{ dvwa_port }}:80"
+              environment:
+                - MYSQL_USER={{ db_user }}
+                - MYSQL_PASSWORD={{ db_password }}
+                - MYSQL_DB={{ db_name }}
+                - MYSQL_ROOT_PASSWORD={{ db_root_password }}
+              depends_on:
+                - db
+
+            db:
+              image: mariadb:10.11
+              container_name: dvwa-db
+              restart: always
+              environment:
+                MYSQL_ROOT_PASSWORD: {{ db_root_password }}
+                MYSQL_DATABASE: {{ db_name }}
+                MYSQL_USER: {{ db_user }}
+                MYSQL_PASSWORD: {{ db_password }}
+              ports:
+                - "{{ db_port }}:3306"
+              volumes:
+                - dvwa-db-data:/var/lib/mysql
+
+          volumes:
+            dvwa-db-data:
+
+    # ---------------------------
+    # Deploy DVWA containers
+    # ---------------------------
+    - name: Launch DVWA using Docker Compose
+      command: docker compose -f /root/dvwa-docker-compose.yml up -d
+      args:
+        chdir: /root
+
+    # ---------------------------
+    # Ensure containers are running
+    # ---------------------------
+    - name: Wait for DVWA container to be healthy
+      docker_container_info:
+        name: dvwa
+      register: dvwa_info
+      retries: 5
+      delay: 5
+      until: dvwa_info.container.State.Running

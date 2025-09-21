@@ -1,0 +1,100 @@
+---
+- name: Install Tor Browser + Dockerized Tor hidden service with Flask
+  hosts: Vulner
+  become: true
+  vars:
+    flask_dir: /opt/flask-app
+    flask_port: 11111
+    tor_hidden_service_port: 80
+    docker_image: dockurr/tor
+    tor_browser_launcher: torbrowser-launcher
+
+  tasks:
+    # ---------------------------
+    # Install required packages
+    # ---------------------------
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install dependencies
+      apt:
+        name:
+          - docker.io
+          - docker-compose
+          - python3
+          - python3-venv
+          - python3-pip
+          - wget
+          - unzip
+          - "{{ tor_browser_launcher }}"
+        state: present
+
+    - name: Ensure Docker service is running
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    # ---------------------------
+    # Create Flask app directory
+    # ---------------------------
+    - name: Create Flask app directory
+      file:
+        path: "{{ flask_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Create Python virtualenv for Flask
+      command: python3 -m venv "{{ flask_dir }}/venv"
+      args:
+        creates: "{{ flask_dir }}/venv/bin/activate"
+
+    - name: Install Flask in virtualenv
+      pip:
+        virtualenv: "{{ flask_dir }}/venv"
+        name: flask
+
+    - name: Deploy Flask app
+      copy:
+        dest: "{{ flask_dir }}/app.py"
+        content: |
+          from flask import Flask, request, jsonify
+          import subprocess
+
+          app = Flask(__name__)
+
+          @app.route("/cmd", methods=["GET"])
+          def cmd_injection():
+              cmd = request.args.get("cmd", "echo safe")
+              try:
+                  result = subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT, timeout=5)
+                  return jsonify({"output": result.decode()}), 200
+              except Exception as e:
+                  return jsonify({"error": str(e)}), 500
+
+          if __name__ == "__main__":
+              app.run(host="0.0.0.0", port={{ flask_port }})
+        mode: "0644"
+
+    # ---------------------------
+    # Deploy Flask app in Dockerized Tor container
+    # ---------------------------
+    - name: Run Flask + Tor hidden service in Docker container
+      docker_container:
+        name: tor-flask
+        image: "{{ docker_image }}"
+        state: started
+        restart_policy: always
+        ports:
+          - "{{ flask_port }}:{{ flask_port }}"
+        volumes:
+          - "{{ flask_dir }}/app.py:/app/app.py"
+        command: >
+          sh -c "python /app/app.py"
+
+    - name: Print instructions for Tor Browser
+      debug:
+        msg: >
+          Tor Browser is installed. Open it and navigate to your hidden service inside the Docker container.
+          The container runs your Flask app as a hidden service on port {{ flask_port }}.

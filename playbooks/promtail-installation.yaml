@@ -1,0 +1,50 @@
+- name: Install Promtail (Log shipper)
+  hosts: Vulner
+  become: true
+  tasks:
+    - name: Ensure logging directory exists
+      file:
+        path: /opt/promtail
+        state: directory
+        mode: "0755"
+
+    - name: Create docker-compose.yml for Promtail
+      copy:
+        dest: /opt/promtail/docker-compose.yml
+        content: |
+          version: "3"
+          services:
+            promtail:
+              image: grafana/promtail:2.9.0
+              container_name: promtail
+              volumes:
+                - /var/log:/var/log
+                - /opt/promtail/config.yml:/etc/promtail/config.yml
+              command: -config.file=/etc/promtail/config.yml
+
+    - name: Promtail config
+      copy:
+        dest: /opt/promtail/config.yml
+        content: |
+          server:
+            http_listen_port: 9080
+            grpc_listen_port: 0
+
+          positions:
+            filename: /tmp/positions.yaml
+
+          clients:
+            - url: http://{{ hostvars['Strike']['ansible_host'] | default('Strike') }}:3100/loki/api/v1/push
+
+          scrape_configs:
+            - job_name: varlogs
+              static_configs:
+                - targets:
+                    - localhost
+                  labels:
+                    job: varlogs
+                    host: Vulner
+                    __path__: /var/log/*log
+
+    - name: Start Promtail
+      command: docker compose -f /opt/promtail/docker-compose.yml up -d

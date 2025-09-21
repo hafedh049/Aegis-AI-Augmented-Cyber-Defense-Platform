@@ -1,0 +1,57 @@
+---
+- name: Delete Dockerized Tor + Flask hidden service
+  hosts: Vulner
+  become: true
+  vars:
+    flask_container_name: tor-flask
+    flask_image_name: tor-flask:latest
+    hidden_service_dir: /var/lib/tor/hidden_service
+
+  tasks:
+    # ---------------------------
+    # Stop Flask container
+    # ---------------------------
+    - name: Stop Flask container if it exists
+      docker_container:
+        name: "{{ flask_container_name }}"
+        state: stopped
+        force_kill: yes
+      failed_when: false
+
+    - name: Remove Flask container if it exists
+      docker_container:
+        name: "{{ flask_container_name }}"
+        state: absent
+        force_kill: yes
+      failed_when: false
+
+    # ---------------------------
+    # Remove Flask Docker image
+    # ---------------------------
+    - name: Remove Flask Docker image
+      docker_image:
+        name: "{{ flask_image_name }}"
+        state: absent
+        force: yes
+      failed_when: false
+
+    # ---------------------------
+    # Remove hidden service directory
+    # ---------------------------
+    - name: Remove Tor hidden service directory
+      file:
+        path: "{{ hidden_service_dir }}"
+        state: absent
+        recurse: yes
+      failed_when: false
+
+    # ---------------------------
+    # Cleanup any remaining Tor containers
+    # ---------------------------
+    - name: Remove any remaining Tor containers
+      shell: docker ps -a -q --filter "ancestor=dockurr/tor" | xargs -r docker rm -f
+      failed_when: false
+
+    - name: Remove any leftover Tor images
+      shell: docker images -q dockurr/tor | xargs -r docker rmi -f
+      failed_when: false

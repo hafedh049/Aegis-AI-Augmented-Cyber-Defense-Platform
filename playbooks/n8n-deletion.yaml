@@ -1,0 +1,26 @@
+---
+- name: Remove n8n installation
+  hosts: n8n-host
+  become: true
+  tasks:
+    - name: Stop n8n container
+      docker_container:
+        name: n8n
+        state: absent
+        force_kill: yes
+
+    - name: Remove n8n Docker volumes (optional)
+      docker_volume:
+        name: n8n-data
+        state: absent
+
+    - name: Remove n8n docker-compose.yml
+      file:
+        path: /opt/n8n/docker-compose.yml
+        state: absent
+
+    - name: Remove n8n directory
+      file:
+        path: /opt/n8n
+        state: absent
+        recurse: yes

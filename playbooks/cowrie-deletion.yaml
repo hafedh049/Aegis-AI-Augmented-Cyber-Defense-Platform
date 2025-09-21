@@ -1,0 +1,42 @@
+---
+- name: Remove Cowrie SSH honeypot
+  hosts: Vulner
+  become: true
+  vars:
+    cowrie_dir: /opt/cowrie
+
+  tasks:
+    # ---------------------------
+    # Stop and remove Cowrie container
+    # ---------------------------
+    - name: Stop Cowrie container
+      docker_container:
+        name: cowrie
+        state: stopped
+        force_kill: true
+      ignore_errors: true
+
+    - name: Remove Cowrie container
+      docker_container:
+        name: cowrie
+        state: absent
+        force_kill: true
+      ignore_errors: true
+
+    # ---------------------------
+    # Remove Cowrie image
+    # ---------------------------
+    - name: Remove Cowrie Docker image
+      docker_image:
+        name: cowrie/cowrie:latest
+        state: absent
+      ignore_errors: true
+
+    # ---------------------------
+    # Remove persistent log directory
+    # ---------------------------
+    - name: Remove Cowrie directory
+      file:
+        path: "{{ cowrie_dir }}"
+        state: absent
+        recurse: true

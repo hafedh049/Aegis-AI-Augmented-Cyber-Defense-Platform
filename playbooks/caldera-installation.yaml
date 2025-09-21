@@ -1,0 +1,82 @@
+---
+- name: Install MITRE CALDERA
+  hosts: Strike
+  become: true
+  vars:
+    caldera_dir: /opt/caldera
+    caldera_venv: /opt/caldera/venv
+    caldera_port: 8888
+
+  tasks:
+    - name: Install dependencies
+      apt:
+        name:
+          - git
+          - python3
+          - python3-venv
+          - python3-pip
+          - build-essential
+        update_cache: yes
+
+    - name: Delete old directory
+      command: rm -rf "{{ caldera_dir }}"
+      args:
+        creates: "{{ caldera_venv }}"
+
+    - name: Clone CALDERA repository
+      git:
+        repo: "https://github.com/mitre/caldera.git"
+        dest: "{{ caldera_dir }}"
+        version: master
+        recursive: yes
+        force: yes
+
+    - name: Create Python virtual environment
+      command: python3 -m venv "{{ caldera_venv }}"
+      args:
+        creates: "{{ caldera_venv }}"
+
+    - name: Install Python requirements inside venv
+      command: "{{ caldera_venv }}/bin/pip install --break-system-packages -r requirements.txt"
+      args:
+        chdir: "{{ caldera_dir }}"
+
+    - name: Create CALDERA systemd service
+      copy:
+        dest: /etc/systemd/system/caldera.service
+        content: |
+          [Unit]
+          Description=MITRE CALDERA
+          After=network.target
+
+          [Service]
+          Type=simple
+          User=root
+          WorkingDirectory={{ caldera_dir }}
+          ExecStart={{ caldera_venv }}/bin/python {{ caldera_dir }}/server.py --insecure --build
+          Restart=on-failure
+
+          [Install]
+          WantedBy=multi-user.target
+        mode: "0644"
+
+    - name: Reload systemd
+      systemd:
+        daemon_reload: yes
+
+    - name: Enable and start CALDERA service
+      systemd:
+        name: caldera
+        state: started
+        enabled: yes
+
+    - name: Wait for CALDERA to be available
+      wait_for:
+        host: 127.0.0.1
+        port: "{{ caldera_port }}"
+        delay: 5
+        timeout: 300
+
+    - name: Display CALDERA access information
+      debug:
+        msg: "CALDERA is running. Access it at http://{{ ansible_host | default(inventory_hostname) }}:{{ caldera_port }} with default credentials (red/admin)."

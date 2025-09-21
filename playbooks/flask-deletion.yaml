@@ -1,0 +1,49 @@
+---
+- name: Remove native Flask API with random secrets
+  hosts: Vulner
+  become: true
+  vars:
+    flask_dir: /opt/flask-secrets
+    flask_user: flaskapi
+
+  tasks:
+    # ---------------------------
+    # Stop and disable systemd service
+    # ---------------------------
+    - name: Stop Flask service
+      systemd:
+        name: flask-secrets
+        state: stopped
+        enabled: no
+        daemon_reload: yes
+
+    # ---------------------------
+    # Remove systemd service file
+    # ---------------------------
+    - name: Remove Flask systemd service file
+      file:
+        path: /etc/systemd/system/flask-secrets.service
+        state: absent
+
+    # ---------------------------
+    # Reload systemd daemon
+    # ---------------------------
+    - name: Reload systemd daemon
+      command: systemctl daemon-reload
+
+    # ---------------------------
+    # Remove Flask application directory
+    # ---------------------------
+    - name: Force remove Flask app directory
+      file:
+        path: "{{ flask_dir }}"
+        state: absent
+
+    # ---------------------------
+    # Remove Flask user
+    # ---------------------------
+    - name: Remove Flask user
+      user:
+        name: "{{ flask_user }}"
+        state: absent
+        remove: yes

@@ -1,0 +1,40 @@
+---
+- name: Uninstall k3s and clean up
+  hosts: Vulner
+  become: true
+
+  tasks:
+    - name: Stop k3s service
+      systemd:
+        name: k3s
+        state: stopped
+        enabled: false
+
+    - name: Remove k3s binaries
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /usr/local/bin/k3s
+        - /usr/local/bin/k3s-killall.sh
+        - /usr/local/bin/k3s-uninstall.sh
+
+    - name: Remove k3s service file
+      file:
+        path: /etc/systemd/system/k3s.service
+        state: absent
+
+    - name: Remove k3s data directory
+      file:
+        path: /var/lib/rancher/k3s
+        state: absent
+
+    - name: Remove kubeconfig from user home
+      file:
+        path: "{{ ansible_env.HOME }}/.kube/config"
+        state: absent
+
+    - name: Remove .kube directory if empty
+      file:
+        path: "{{ ansible_env.HOME }}/.kube"
+        state: absent

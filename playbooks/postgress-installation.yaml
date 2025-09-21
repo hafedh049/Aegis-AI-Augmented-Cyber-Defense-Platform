@@ -1,0 +1,181 @@
+---
+- name: Install and configure PostgreSQL, create DB & user, then flood with fuzz data
+  hosts: Vulner
+  become: true
+  vars:
+    postgres_db: test_vulndb
+    postgres_user: vuln_user
+    postgres_pass: VulnPwd123!
+    data_csv: /tmp/test_data.csv
+    data_rows: 500
+    generator_path: /tmp/generate_test_data.py
+
+  tasks:
+    - name: Ensure remote_tmp dir for postgres ansible operations
+      file:
+        path: /var/lib/postgresql/.ansible/tmp
+        state: directory
+        owner: postgres
+        group: postgres
+        mode: "0700"
+
+    - name: Ensure apt cache is up to date (Debian/Ubuntu)
+      apt:
+        update_cache: yes
+      when: ansible_facts['pkg_mgr'] == 'apt'
+
+    - name: Install PostgreSQL and Python deps (Debian/Ubuntu)
+      apt:
+        name:
+          - postgresql
+          - postgresql-contrib
+          - python3
+          - python3-psycopg2
+        state: present
+        update_cache: yes
+      when: ansible_facts['pkg_mgr'] == 'apt'
+
+    - name: Ensure PostgreSQL service is running
+      service:
+        name: postgresql
+        state: started
+        enabled: yes
+
+    - name: Wait for postgres socket to be ready
+      wait_for:
+        path: /var/run/postgresql
+        state: present
+        timeout: 60
+
+    - name: Create database
+      community.postgresql.postgresql_db:
+        name: "{{ postgres_db }}"
+        encoding: UTF8
+        login_user: postgres
+      become_user: postgres
+
+    - name: Create database user (no priv here)
+      community.postgresql.postgresql_user:
+        name: "{{ postgres_user }}"
+        password: "{{ postgres_pass }}"
+        login_user: postgres
+        state: present
+      become_user: postgres
+
+    - name: Grant all privileges on database to user
+      become_user: postgres
+      shell: |
+        psql -d {{ postgres_db }} -c "GRANT ALL PRIVILEGES ON DATABASE {{ postgres_db }} TO {{ postgres_user }};"
+
+    - name: Create target table for fuzz data
+      become_user: postgres
+      shell: |
+        psql -d {{ postgres_db }} -c "
+        CREATE TABLE IF NOT EXISTS vuln_test (
+          id serial PRIMARY KEY,
+          payload text,
+          extra jsonb,
+          bin bytea
+        );"
+
+    - name: Upload data generator script
+      copy:
+        dest: "{{ generator_path }}"
+        mode: "0755"
+        content: |
+          #!/usr/bin/env python3
+          import csv, json, os, random
+          ROWS = int(os.environ.get("DATA_ROWS", "{{ data_rows }}"))
+          out = "{{ data_csv }}"
+          def mk_long(n): return "A" * n
+          def mk_unicode(): return "Emoji: 😈🔥💥 — 漢字 — عربى"
+          def mk_control(n): return "Line1\nLine2\tTabbed\nNullChar:\\x00"
+          def mk_escaped_quotes(): 
+              return """He said "hello" and then \\backslash\\ and then 'single'"""
+          def mk_percent(): return "100% sure %s %% formatting %%%% " + "X"
+          def mk_json_like(i):
+              if i % 5 == 0:
+                  return '{"incomplete": true'
+              return json.dumps({"i": i, "note": "unicode ✓", "arr":[1,2,"three"]})
+          def mk_binary(i):
+              b = bytes(random.getrandbits(8) for _ in range(min(256, i % 300)))
+              return b.hex()
+          rows = []
+          for i in range(ROWS):
+              payload = random.choice([
+                  mk_long(10),
+                  mk_long(5000),
+                  mk_unicode(),
+                  mk_control(i),
+                  mk_escaped_quotes(),
+                  mk_percent() + str(i),
+                  "NULL" if i % 37 == 0 else (" " if i % 23 == 0 else "normal_"+str(i))
+              ])
+              extra = mk_json_like(i)
+              binhex = mk_binary(i)
+              rows.append([payload, extra, binhex])
+          with open(out, "w", newline='', encoding="utf-8") as f:
+              writer = csv.writer(f, quoting=csv.QUOTE_MINIMAL)
+              for r in rows:
+                  writer.writerow(r)
+          print("generated", len(rows), "rows to", out)
+
+    - name: Run data generator (creates CSV)
+      environment:
+        DATA_ROWS: "{{ data_rows }}"
+      command: /usr/bin/python3 "{{ generator_path }}"
+      args:
+        creates: "{{ data_csv }}"
+
+    - name: Adjust CSV permissions so postgres user can read it
+      file:
+        path: "{{ data_csv }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Try bulk insert with inline Python (robust JSON + bin handling)
+      become_user: postgres
+      shell: |
+        python3 - <<'PY'
+        import csv, psycopg2, os, sys, json
+        db = "{{ postgres_db }}"
+        conn = psycopg2.connect(dbname=db, user="postgres")
+        cur = conn.cursor()
+        path = "{{ data_csv }}"
+        with open(path, newline='', encoding='utf-8') as f:
+            r = csv.reader(f)
+            for payload, extra, binhex in r:
+                try:
+                    # Validate JSON
+                    try:
+                        extra_val = json.loads(extra) if extra else None
+                    except:
+                        extra_val = None
+                    # Insert with or without bin
+                    if binhex:
+                        cur.execute(
+                            "INSERT INTO vuln_test (payload, extra, bin) VALUES (%s, %s, decode(%s,'hex'))",
+                            (payload, extra_val, binhex)
+                        )
+                    else:
+                        cur.execute(
+                            "INSERT INTO vuln_test (payload, extra) VALUES (%s, %s)",
+                            (payload, extra_val)
+                        )
+                except Exception as e:
+                    sys.stderr.write('err: %s\n' % str(e))
+        conn.commit()
+        cur.close()
+        conn.close()
+        print('inline python import done')
+        PY
+
+    - name: Show sample counts
+      become_user: postgres
+      shell: psql -d {{ postgres_db }} -c "SELECT count(*) FROM vuln_test;"
+      register: count_out
+
+    - name: Print import result
+      debug:
+        msg: "{{ count_out.stdout_lines }}"

@@ -1,0 +1,55 @@
+---
+- name: Deploy Cowrie SSH honeypot using Docker
+  hosts: Vulner
+  become: true
+  vars:
+    cowrie_port: 2222 # Host port mapped to container's SSH
+    cowrie_dir: /opt/cowrie # Local directory for persistent logs
+    cowrie_image: cowrie/cowrie:latest
+
+  tasks:
+    # ---------------------------
+    # Install Docker and Docker Compose
+    # ---------------------------
+    - name: Ensure Docker is installed
+      apt:
+        name: docker.io
+        state: present
+        update_cache: yes
+
+    - name: Ensure Docker Compose plugin is installed
+      apt:
+        name: docker-compose
+        state: present
+        update_cache: yes
+
+    - name: Ensure Docker service is running
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    # ---------------------------
+    # Create persistent log directory
+    # ---------------------------
+    - name: Create local Cowrie directory for logs
+      file:
+        path: "{{ cowrie_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    # ---------------------------
+    # Deploy Cowrie container
+    # ---------------------------
+    - name: Launch Cowrie container
+      docker_container:
+        name: cowrie
+        image: "{{ cowrie_image }}"
+        state: started
+        restart_policy: always
+        ports:
+          - "{{ cowrie_port }}:2222" # Map host port to container SSH
+        volumes:
+          - "{{ cowrie_dir }}/log:/cowrie/log"

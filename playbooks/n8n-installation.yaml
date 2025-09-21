@@ -1,0 +1,35 @@
+---
+- name: Install n8n (workflow automation)
+  hosts: Strike
+  become: true
+  tasks:
+    - name: Ensure n8n directory exists
+      file:
+        path: /opt/n8n
+        state: directory
+        mode: "0755"
+
+    - name: Create docker-compose.yml for n8n
+      copy:
+        dest: /opt/n8n/docker-compose.yml
+        content: |
+          version: "3"
+          services:
+            n8n:
+              image: n8nio/n8n:latest
+              container_name: n8n
+              restart: always
+              ports:
+                - "5678:5678"
+              environment:
+                - N8N_BASIC_AUTH_ACTIVE=true
+                - N8N_BASIC_AUTH_USER=admin
+                - N8N_BASIC_AUTH_PASSWORD=admin
+              volumes:
+                - n8n_data:/home/node/.n8n
+
+          volumes:
+            n8n_data:
+
+    - name: Start n8n
+      command: docker compose -f /opt/n8n/docker-compose.yml up -d

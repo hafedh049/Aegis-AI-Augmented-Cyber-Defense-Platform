@@ -1,0 +1,95 @@
+- name: Install Grafana and Loki (Central)
+  hosts: Strike
+  become: true
+  tasks:
+    - name: Ensure logging directory exists
+      file:
+        path: /opt/logging
+        state: directory
+        mode: "0755"
+
+    - name: Create docker-compose.yml for Grafana+Loki
+      copy:
+        dest: /opt/logging/docker-compose.yml
+        content: |
+          version: "3"
+          services:
+            loki:
+              image: grafana/loki:2.9.0
+              container_name: loki
+              ports:
+                - "3100:3100"
+              command: -config.file=/etc/loki/local-config.yaml
+              volumes:
+                - /opt/logging/loki-config.yaml:/etc/loki/local-config.yaml
+
+            grafana:
+              image: grafana/grafana:10.4.2
+              container_name: grafana
+              ports:
+                - "3000:3000"
+              environment:
+                - GF_SECURITY_ADMIN_USER=admin
+                - GF_SECURITY_ADMIN_PASSWORD=admin
+              depends_on:
+                - loki
+              volumes:
+                - grafana-data:/var/lib/grafana
+
+          volumes:
+            grafana-data:
+
+    - name: Loki config file
+      copy:
+        dest: /opt/logging/loki-config.yaml
+        content: |
+          auth_enabled: false
+
+          server:
+            http_listen_port: 3100
+
+          ingester:
+            lifecycler:
+              ring:
+                kvstore:
+                  store: inmemory
+                replication_factor: 1
+            chunk_idle_period: 5m
+            chunk_retain_period: 30s
+            wal:
+              enabled: true
+              dir: /tmp/wal
+            max_transfer_retries: 0
+
+          schema_config:
+            configs:
+              - from: 2020-10-24
+                store: boltdb-shipper
+                object_store: filesystem
+                schema: v11
+                index:
+                  prefix: index_
+                  period: 24h
+
+          storage_config:
+            boltdb_shipper:
+              active_index_directory: /tmp/loki/index
+              cache_location: /tmp/loki/cache
+              shared_store: filesystem
+            filesystem:
+              directory: /tmp/loki/chunks
+
+          limits_config:
+            enforce_metric_name: false
+            reject_old_samples: true
+            reject_old_samples_max_age: 168h
+
+          chunk_store_config:
+            max_look_back_period: 0s
+
+          table_manager:
+            retention_deletes_enabled: true
+            retention_period: 7d
+
+    - name: Start services
+      command: docker compose -f /opt/logging/docker-compose.yml up -d

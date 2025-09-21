@@ -1,0 +1,20 @@
+[
+    {
+        "name": "Ansible CP",
+        "path": "D:/Virtual Machines/Ansible-CP/Ansible-CP.vmx",
+        "ip": "192.168.74.142",
+        "state": "start"
+    },
+    {
+        "name": "Strike",
+        "path": "D:/Virtual Machines/Strike/Strike.vmx",
+        "ip": "192.168.74.144",
+        "state": "start"
+    },
+    {
+        "name": "Vulner",
+        "path": "D:/Virtual Machines/Vulner/Vulner.vmx",
+        "ip": "192.168.74.146",
+        "state": "start"
+    }
+]

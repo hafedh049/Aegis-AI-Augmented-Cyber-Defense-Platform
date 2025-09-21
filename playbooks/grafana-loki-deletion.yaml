@@ -1,0 +1,12 @@
+- name: Remove Grafana and Loki (Central)
+  hosts: Strike
+  become: true
+  tasks:
+    - name: Stop and remove Grafana+Loki containers
+      command: docker compose -f /opt/logging/docker-compose.yml down
+      ignore_errors: true
+
+    - name: Remove logging directory
+      file:
+        path: /opt/logging
+        state: absent

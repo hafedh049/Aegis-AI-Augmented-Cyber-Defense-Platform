@@ -1,0 +1,12 @@
+- name: Remove Promtail (Log shipper)
+  hosts: Vulner
+  become: true
+  tasks:
+    - name: Stop and remove Promtail container
+      command: docker compose -f /opt/promtail/docker-compose.yml down
+      ignore_errors: true
+
+    - name: Remove promtail directory
+      file:
+        path: /opt/promtail
+        state: absent

@@ -1,0 +1,35 @@
+---
+- name: Remove MongoDB Docker deployment
+  hosts: Vulner
+  become: true
+  vars:
+    mongo_container_name: mongo
+    mongo_volume: mongo-data
+    mongo_network: mongo-net
+
+  tasks:
+    # ---------------------------
+    # Stop & remove MongoDB container
+    # ---------------------------
+    - name: Remove MongoDB container
+      docker_container:
+        name: "{{ mongo_container_name }}"
+        state: absent
+        force_kill: true
+        remove_volumes: true
+
+    # ---------------------------
+    # Remove MongoDB volume
+    # ---------------------------
+    - name: Remove MongoDB volume
+      docker_volume:
+        name: "{{ mongo_volume }}"
+        state: absent
+
+    # ---------------------------
+    # Remove MongoDB Docker network
+    # ---------------------------
+    - name: Remove MongoDB network
+      docker_network:
+        name: "{{ mongo_network }}"
+        state: absent

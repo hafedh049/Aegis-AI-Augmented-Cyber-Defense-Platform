@@ -1,0 +1,79 @@
+---
+- name: Deploy Neo4j using Docker
+  hosts: Vulner
+  become: true
+  vars:
+    neo4j_http_port: 7474 # Web UI
+    neo4j_https_port: 7473 # Secure Web UI
+    neo4j_bolt_port: 7687 # Bolt protocol
+    neo4j_password: "neo4j_pass"
+
+  tasks:
+    # ---------------------------
+    # Install Docker
+    # ---------------------------
+    - name: Ensure Docker is installed
+      apt:
+        name: docker.io
+        state: present
+        update_cache: true
+
+    - name: Ensure Docker service is running
+      systemd:
+        name: docker
+        state: started
+        enabled: true
+
+    # ---------------------------
+    # Create docker-compose.yml for Neo4j
+    # ---------------------------
+    - name: Create Neo4j docker-compose.yml
+      copy:
+        dest: /root/neo4j-docker-compose.yml
+        content: |
+          version: '3.8'
+          services:
+            neo4j:
+              image: neo4j:5.22
+              container_name: neo4j
+              restart: always
+              ports:
+                - "{{ neo4j_http_port }}:7474"
+                - "{{ neo4j_https_port }}:7473"
+                - "{{ neo4j_bolt_port }}:7687"
+              environment:
+                - NEO4J_AUTH=neo4j/{{ neo4j_password }}
+              volumes:
+                - neo4j-data:/data
+                - neo4j-logs:/logs
+
+          volumes:
+            neo4j-data:
+            neo4j-logs:
+
+    # ---------------------------
+    # Deploy Neo4j containers
+    # ---------------------------
+    - name: Launch Neo4j using Docker Compose
+      command: docker compose -f /root/neo4j-docker-compose.yml up -d
+      args:
+        chdir: /root
+
+    # ---------------------------
+    # Verify Neo4j is running
+    # ---------------------------
+    - name: Wait for Neo4j container to be running
+      shell: "docker ps --filter 'name=neo4j' --filter 'status=running' --format '{{'{{.Names}}'}}'"
+      register: neo4j_container
+      retries: 5
+      delay: 5
+      until: "'neo4j' in neo4j_container.stdout"
+
+    - name: Print Neo4j access info
+      debug:
+        msg: |
+          🚀 Neo4j is running!
+          - Web UI:  http://<host_ip>:{{ neo4j_http_port }}
+          - Bolt:    bolt://<host_ip>:{{ neo4j_bolt_port }}
+          - User:    neo4j
+          - Password: {{ neo4j_password }}

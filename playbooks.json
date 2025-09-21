@@ -1,0 +1,93 @@
+[
+  {
+    "deletion": "postgress-deletion.yaml",
+    "installation": "postgress-installation.yaml",
+    "name": "Postgress",
+    "execute_deletion": false,
+    "execute_installation": false
+  },
+  {
+    "deletion": "dvwa-deletion.yaml",
+    "installation": "dvwa-installation.yaml",
+    "name": "DVWA",
+    "execute_deletion": false,
+    "execute_installation": false
+  },
+  {
+    "deletion": "mongodb-deletion.yaml",
+    "installation": "mongodb-installation.yaml",
+    "name": "MongoDB",
+    "execute_deletion": false,
+    "execute_installation": false
+  },
+  {
+    "deletion": "neo4j-deletion.yaml",
+    "installation": "neo4j-installation.yaml",
+    "name": "Neo4j",
+    "execute_deletion": false,
+    "execute_installation": false
+  },
+  {
+    "deletion": "k3s-deletion.yaml",
+    "installation": "k3s-installation.yaml",
+    "name": "K3s",
+    "execute_deletion": false,
+    "execute_installation": false
+  },
+  {
+    "deletion": "cowrie-deletion.yaml",
+    "installation": "cowrie-installation.yaml",
+    "name": "Cowrie",
+    "execute_deletion": false,
+    "execute_installation": false
+  },
+  {
+    "deletion": "flask-deletion.yaml",
+    "installation": "flask-installation.yaml",
+    "name": "Flask",
+    "execute_deletion": false,
+    "execute_installation": false
+  },
+  {
+    "deletion": "tor-deletion.yaml",
+    "installation": "tor-installation.yaml",
+    "name": "Tor",
+    "execute_deletion": false,
+    "execute_installation": false
+  },
+  {
+    "deletion": "caldera-deletion.yaml",
+    "installation": "caldera-installation.yaml",
+    "name": "Caldera MITRE",
+    "execute_deletion": false,
+    "execute_installation": false
+  },
+  {
+    "deletion": "grafana-loki-deletion.yaml",
+    "installation": "grafana-loki-installation.yaml",
+    "name": "Grafana Loki",
+    "execute_deletion": false,
+    "execute_installation": false
+  },
+  {
+    "deletion": "promtail-deletion.yaml",
+    "installation": "promtail-installation.yaml",
+    "name": "Promtail",
+    "execute_deletion": false,
+    "execute_installation": false
+  },
+  {
+    "deletion": "n8n-deletion.yaml",
+    "installation": "n8n-installation.yaml",
+    "name": "N8N",
+    "execute_deletion": false,
+    "execute_installation": false
+  },
+  {
+    "deletion": "shuffle-deletion.yaml",
+    "installation": "shuffle-installation.yaml",
+    "name": "Shuffle",
+    "execute_deletion": false,
+    "execute_installation": true
+  }
+]
