@@ -105,7 +105,7 @@ graph TD
 ### 1. Clone the Repo
 
 ```bash
-git clone https://github.com/yourusername/Aegis.git
+git clone https://github.com/hafedh049/Aegis.git
 cd Aegis
 ```
 
@@ -209,8 +209,8 @@ Distributed under the **MIT License**. See `LICENSE` for more information.
 
 ## 📬 Contact
 
-**Hafedh Guenichi** — [your.email@example.com](mailto:hafedhgunichi@gmail.com)  
-Project Link: [https://github.com/yourusername/Aegis](https://github.com/hafedh049/Aegis)
+**Hafedh Guenichi** — [hafedhgunichi@gmail.com](mailto:hafedhgunichi@gmail.com)  
+Project Link: [https://github.com/hafedh049/Aegis](https://github.com/hafedh049/Aegis)
 
 ---
 
