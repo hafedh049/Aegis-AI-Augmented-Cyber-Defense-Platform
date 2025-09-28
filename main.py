@@ -122,7 +122,8 @@ def configure_ansible_master():
     ssh.connect(ansible_master_ip, username=BASE_VM_USERNAME, password=BASE_VM_PASSWORD)
 
     commands = [
-        "apt-get install -y ansible ansible-core python3-pip sshpass tree jq 7zip nmap docker.io docker-compose",
+        "apt update"
+        "apt-get install -y ansible* python3-pip sshpass tree jq 7zip nmap docker.io docker-compose",
         "ansible-galaxy collection install ansible.posix community.general",
         "echo '[defaults]' | tee /root/ansible.cfg",
         "echo 'inventory = /root/inventory' | tee -a /root/ansible.cfg",

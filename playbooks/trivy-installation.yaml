@@ -1,0 +1,23 @@
+- name: Install Trivy on Strike
+  hosts: Strike
+  become: true
+  tasks:
+    - name: Install dependencies
+      package:
+        name: curl
+        state: present
+
+    - name: Download and run Trivy installer script
+      shell: |
+        curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh
+      args:
+        creates: /usr/local/bin/trivy
+
+    - name: Verify Trivy installation
+      command: trivy --version
+      register: trivy_version
+      changed_when: false
+
+    - name: Show Trivy version
+      debug:
+        msg: "Installed {{ trivy_version.stdout }}"

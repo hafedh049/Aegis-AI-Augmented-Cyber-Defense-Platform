@@ -1,12 +1,5 @@
 [
   {
-    "deletion": "postgress-deletion.yaml",
-    "installation": "postgress-installation.yaml",
-    "name": "Postgress",
-    "execute_deletion": false,
-    "execute_installation": false
-  },
-  {
     "deletion": "dvwa-deletion.yaml",
     "installation": "dvwa-installation.yaml",
     "name": "DVWA",
@@ -41,20 +34,7 @@
     "execute_deletion": false,
     "execute_installation": false
   },
-  {
-    "deletion": "flask-deletion.yaml",
-    "installation": "flask-installation.yaml",
-    "name": "Flask",
-    "execute_deletion": false,
-    "execute_installation": false
-  },
-  {
-    "deletion": "tor-deletion.yaml",
-    "installation": "tor-installation.yaml",
-    "name": "Tor",
-    "execute_deletion": false,
-    "execute_installation": false
-  },
+
   {
     "deletion": "caldera-deletion.yaml",
     "installation": "caldera-installation.yaml",
@@ -84,9 +64,16 @@
     "execute_installation": false
   },
   {
-    "deletion": "shuffle-deletion.yaml",
-    "installation": "shuffle-installation.yaml",
-    "name": "Shuffle",
+    "deletion": "trivy-deletion.yaml",
+    "installation": "trivy-installation.yaml",
+    "name": "Trivy",
+    "execute_deletion": false,
+    "execute_installation": true
+  },
+  {
+    "deletion": "sonarqube-deletion.yaml",
+    "installation": "sonarqube-installation.yaml",
+    "name": "SonarQube",
     "execute_deletion": false,
     "execute_installation": true
   }

@@ -1,0 +1,44 @@
+---
+- name: Remove DVWA deployment
+  hosts: Vulner
+  become: true
+  vars:
+    dvwa_compose_path: /root/dvwa-docker-compose.yml
+    dvwa_cookie_file: /tmp/dvwa_cookies
+    dvwa_setup_html: /tmp/dvwa_setup.html
+  tasks:
+    # ---------------------------
+    # Stop and remove containers
+    # ---------------------------
+    - name: Stop and remove DVWA containers
+      command: docker compose -f "{{ dvwa_compose_path }}" down -v
+      ignore_errors: true
+
+    # ---------------------------
+    # Remove docker-compose.yml
+    # ---------------------------
+    - name: Remove docker-compose.yml
+      file:
+        path: "{{ dvwa_compose_path }}"
+        state: absent
+
+    # ---------------------------
+    # Remove temporary setup files
+    # ---------------------------
+    - name: Remove temporary DVWA files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ dvwa_cookie_file }}"
+        - "{{ dvwa_setup_html }}"
+      ignore_errors: true
+
+    # ---------------------------
+    # Remove persistent volume folder (optional)
+    # ---------------------------
+    - name: Remove DVWA database data volume
+      file:
+        path: /var/lib/docker/volumes/dvwa-db-data
+        state: absent
+      ignore_errors: true

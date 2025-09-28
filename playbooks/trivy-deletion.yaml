@@ -1,0 +1,28 @@
+- name: Remove Trivy from Strike
+  hosts: Strike
+  become: true
+  tasks:
+    - name: Remove Trivy binary
+      file:
+        path: /usr/local/bin/trivy
+        state: absent
+
+    - name: Remove Trivy cache directory
+      file:
+        path: /root/.cache/trivy
+        state: absent
+
+    - name: Ensure Trivy is gone
+      command: which trivy
+      register: trivy_check
+      ignore_errors: true
+      changed_when: false
+
+    - name: Show removal status
+      debug:
+        msg: >-
+          {% if trivy_check.rc != 0 %}
+            ✅ Trivy successfully removed
+          {% else %}
+            ⚠️ Trivy still exists at {{ trivy_check.stdout }}
+          {% endif %}

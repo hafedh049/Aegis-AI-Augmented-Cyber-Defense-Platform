@@ -1,5 +1,5 @@
 ---
-- name: Deploy DVWA using Docker
+- name: Deploy DVWA using Docker (fully automated DB setup)
   hosts: Vulner
   become: true
   vars:
@@ -11,10 +11,21 @@
     db_name: dvwa
     db_user: dvwa_user
     db_password: dvwa_pass
+    # where to put compose file
+    dvwa_compose_path: /root/dvwa-docker-compose.yml
+    # temp files used during setup
+    dvwa_cookie_file: /tmp/dvwa_cookies
+    dvwa_setup_html: /tmp/dvwa_setup.html
+    dvwa_token_path: /tmp/dvwa_token
   tasks:
     # ---------------------------
-    # Install Docker and Docker Compose
+    # Ensure system prerequisites
     # ---------------------------
+    - name: Ensure apt cache refreshed
+      apt:
+        update_cache: yes
+      changed_when: false
+
     - name: Ensure Docker is installed
       apt:
         name: docker.io
@@ -38,7 +49,7 @@
     # ---------------------------
     - name: Create DVWA docker-compose.yml
       copy:
-        dest: /root/dvwa-docker-compose.yml
+        dest: "{{ dvwa_compose_path }}"
         content: |
           version: '3.8'
           services:
@@ -74,20 +85,115 @@
             dvwa-db-data:
 
     # ---------------------------
-    # Deploy DVWA containers
+    # Launch DVWA containers
     # ---------------------------
     - name: Launch DVWA using Docker Compose
-      command: docker compose -f /root/dvwa-docker-compose.yml up -d
+      command: docker compose -f "{{ dvwa_compose_path }}" up -d
       args:
         chdir: /root
 
     # ---------------------------
-    # Ensure containers are running
+    # Wait for DB to be ready (mariadb)
     # ---------------------------
-    - name: Wait for DVWA container to be healthy
-      docker_container_info:
-        name: dvwa
-      register: dvwa_info
-      retries: 5
-      delay: 5
-      until: dvwa_info.container.State.Running
+    - name: Wait for MariaDB container to accept connections
+      shell: |
+        docker exec dvwa-db bash -c "until mysqladmin ping -u{{ db_user }} -p'{{ db_password }}' --silent 2>/dev/null; do sleep 2; done; echo OK"
+      register: db_ready
+      retries: 15
+      delay: 4
+      until: db_ready.stdout.find('OK') != -1
+
+    # ---------------------------
+    # Idempotency check: is DVWA DB already populated?
+    # ---------------------------
+    - name: Check if DVWA 'users' table exists (skip DB init if present)
+      shell: |
+        docker exec dvwa-db bash -c "mysql -u{{ db_user }} -p'{{ db_password }}' -D {{ db_name }} -e \"SHOW TABLES LIKE 'users';\" 2>/dev/null || true"
+      register: users_table_check
+      changed_when: false
+
+    - name: Set fact db_already_initialized
+      set_fact:
+        db_already_initialized: "{{ (users_table_check.stdout|trim) != '' }}"
+
+    - name: Debug DB init status
+      debug:
+        msg: "DB already initialized: {{ db_already_initialized }}"
+
+    # ---------------------------
+    # If DB not initialized -> perform web-driven setup (handles CSRF & session)
+    # ---------------------------
+    - name: Fetch DVWA setup page and save cookies (only when DB not initialized)
+      shell: >
+        curl -s -c "{{ dvwa_cookie_file }}" -b "security=low" -L
+        "http://localhost:{{ dvwa_port }}/setup.php" > "{{ dvwa_setup_html }}"
+      register: fetch_setup
+      changed_when: false
+      when: not db_already_initialized
+
+    - name: Extract CSRF user_token from setup page (only when DB not initialized)
+      shell: "grep -oP \"name=['\\\"]user_token['\\\"] value=['\\\"]\\K[^'\\\"]+\" {{ dvwa_setup_html }} || true"
+      register: dvwa_token
+      failed_when: dvwa_token.rc != 0 and dvwa_token.stdout == ''
+      changed_when: false
+      when: not db_already_initialized
+
+    - name: Fail if token extraction failed (only when DB not initialized)
+      fail:
+        msg: "Could not extract DVWA CSRF token from setup page. Check {{ dvwa_setup_html }}."
+      when:
+        - not db_already_initialized
+        - dvwa_token.stdout == ""
+
+    - name: Auto-create / Reset DVWA database (POST with token + cookies) (only when DB not initialized)
+      shell: >
+        curl -s -b "{{ dvwa_cookie_file }}" -c "{{ dvwa_cookie_file }}" -L
+        -X POST
+        -d "create_db=Create+%2F+Reset+Database&user_token={{ dvwa_token.stdout }}"
+        "http://localhost:{{ dvwa_port }}/setup.php"
+      register: dvwa_post
+      changed_when: true
+      when: not db_already_initialized
+
+    - name: Check DVWA POST output for success (only when DB not initialized)
+      set_fact:
+        dvwa_db_creation_ok: "{{ ('Database has been created' in dvwa_post.stdout) or ('Database has been reset' in dvwa_post.stdout) or ('Database created' in dvwa_post.stdout) }}"
+      when: not db_already_initialized
+
+    - name: Fail if DB creation did not return success message (only when DB not initialized)
+      fail:
+        msg: "DVWA DB creation/reset did not report success. Output saved in dvwa_post.stdout"
+      when:
+        - not db_already_initialized
+        - not dvwa_db_creation_ok | default(false)
+
+    # ---------------------------
+    # Cleanup temp files (safe)
+    # ---------------------------
+    - name: Remove dvwa temporary cookie and html files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ dvwa_cookie_file }}"
+        - "{{ dvwa_setup_html }}"
+      ignore_errors: true
+
+    # ---------------------------
+    # Final check: ensure DVWA HTTP endpoint is up
+    # ---------------------------
+    - name: Wait for DVWA HTTP to respond 200 OK
+      uri:
+        url: "http://localhost:{{ dvwa_port }}/"
+        method: GET
+        status_code: 200
+      register: dvwa_http
+      retries: 10
+      delay: 4
+      until: dvwa_http.status == 200
+
+    - name: Show final status
+      debug:
+        msg:
+          - "DVWA deployed and DB initialized (if it wasn't already)."
+          - "Access DVWA at http://{{ ansible_host | default(inventory_hostname) }}:{{ dvwa_port }}"

@@ -1,0 +1,36 @@
+- name: Install SonarQube
+  hosts: Strike
+  become: true
+  tasks:
+    - name: Ensure SonarQube directory exists
+      file:
+        path: /opt/sonarqube
+        state: directory
+        mode: "0755"
+
+    - name: Create docker-compose.yml for SonarQube
+      copy:
+        dest: /opt/sonarqube/docker-compose.yml
+        content: |
+          version: "3"
+          services:
+            sonarqube:
+              image: sonarqube:latest
+              container_name: sonarqube
+              restart: always
+              ports:
+                - "9000:9000"
+              environment:
+                - SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true
+              volumes:
+                - sonarqube_data:/opt/sonarqube/data
+                - sonarqube_extensions:/opt/sonarqube/extensions
+                - sonarqube_logs:/opt/sonarqube/logs
+
+          volumes:
+            sonarqube_data:
+            sonarqube_extensions:
+            sonarqube_logs:
+
+    - name: Start SonarQube
+      command: docker compose -f /opt/sonarqube/docker-compose.yml up -d

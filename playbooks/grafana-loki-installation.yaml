@@ -2,11 +2,19 @@
   hosts: Strike
   become: true
   tasks:
-    - name: Ensure logging directory exists
+    - name: Ensure logging directories exist
       file:
-        path: /opt/logging
+        path: "{{ item }}"
         state: directory
         mode: "0755"
+      loop:
+        - /opt/logging
+        - /opt/logging/loki/chunks
+        - /opt/logging/loki/index
+        - /opt/logging/loki/cache
+        - /opt/logging/loki/wal
+        - /opt/logging/loki/compactor
+        - /opt/logging/provisioning/datasources # 👈 add provisioning dir
 
     - name: Create docker-compose.yml for Grafana+Loki
       copy:
@@ -17,11 +25,17 @@
             loki:
               image: grafana/loki:2.9.0
               container_name: loki
+              user: "0:0"
               ports:
                 - "3100:3100"
               command: -config.file=/etc/loki/local-config.yaml
               volumes:
                 - /opt/logging/loki-config.yaml:/etc/loki/local-config.yaml
+                - /opt/logging/loki/chunks:/loki/chunks
+                - /opt/logging/loki/index:/loki/index
+                - /opt/logging/loki/cache:/loki/cache
+                - /opt/logging/loki/wal:/loki/wal
+                - /opt/logging/loki/compactor:/loki/compactor
 
             grafana:
               image: grafana/grafana:10.4.2
@@ -35,6 +49,7 @@
                 - loki
               volumes:
                 - grafana-data:/var/lib/grafana
+                - /opt/logging/provisioning:/etc/grafana/provisioning   # 👈 mount provisioning
 
           volumes:
             grafana-data:
@@ -58,7 +73,7 @@
             chunk_retain_period: 30s
             wal:
               enabled: true
-              dir: /tmp/wal
+              dir: /loki/wal
             max_transfer_retries: 0
 
           schema_config:
@@ -73,11 +88,15 @@
 
           storage_config:
             boltdb_shipper:
-              active_index_directory: /tmp/loki/index
-              cache_location: /tmp/loki/cache
+              active_index_directory: /loki/index
+              cache_location: /loki/cache
               shared_store: filesystem
             filesystem:
-              directory: /tmp/loki/chunks
+              directory: /loki/chunks
+
+          compactor:
+            working_directory: /loki/compactor
+            shared_store: filesystem
 
           limits_config:
             enforce_metric_name: false
@@ -90,6 +109,18 @@
           table_manager:
             retention_deletes_enabled: true
             retention_period: 7d
+
+    - name: Add Loki datasource provisioning
+      copy:
+        dest: /opt/logging/provisioning/datasources/loki.yaml
+        content: |
+          apiVersion: 1
+          datasources:
+            - name: Loki
+              type: loki
+              access: proxy
+              url: http://loki:3100
+              isDefault: true
 
     - name: Start services
       command: docker compose -f /opt/logging/docker-compose.yml up -d

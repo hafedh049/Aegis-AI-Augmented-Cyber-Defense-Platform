@@ -8,7 +8,7 @@
     caldera_port: 8888
 
   tasks:
-    - name: Install dependencies
+    - name: Install system dependencies
       apt:
         name:
           - git
@@ -16,9 +16,11 @@
           - python3-venv
           - python3-pip
           - build-essential
+          - nodejs # <-- install Node.js from apt
+          - npm # <-- install npm from apt
         update_cache: yes
 
-    - name: Delete old directory
+    - name: Delete old CALDERA directory
       command: rm -rf "{{ caldera_dir }}"
       args:
         creates: "{{ caldera_venv }}"
