@@ -1,6 +1,6 @@
 ---
 - name: Uninstall k3s and clean up
-  hosts: Vulner
+  hosts: Strike
   become: true
 
   tasks:

@@ -1,23 +1,30 @@
-- name: Install Trivy on Strike
+- name: Install Trivy in Docker on Strike
   hosts: Strike
   become: true
   tasks:
-    - name: Install dependencies
-      package:
-        name: curl
+    - name: Ensure Docker is installed
+      apt:
+        name: docker.io
         state: present
+        update_cache: true
 
-    - name: Download and run Trivy installer script
-      shell: |
-        curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh
-      args:
-        creates: /usr/local/bin/trivy
+    - name: Pull Trivy Docker image
+      command: docker pull aquasec/trivy:latest
+
+    - name: Create alias script for Trivy
+      copy:
+        dest: /usr/local/bin/trivy
+        mode: "0755"
+        content: |
+          #!/bin/bash
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            -v $HOME/.cache:/root/.cache \
+            aquasec/trivy:latest "$@"
 
     - name: Verify Trivy installation
       command: trivy --version
       register: trivy_version
-      changed_when: false
 
-    - name: Show Trivy version
+    - name: Show installed Trivy version
       debug:
-        msg: "Installed {{ trivy_version.stdout }}"
+        var: trivy_version.stdout

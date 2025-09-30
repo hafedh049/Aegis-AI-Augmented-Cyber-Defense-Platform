@@ -1,6 +1,6 @@
 ---
 - name: Install and configure k3s (single node)
-  hosts: Vulner
+  hosts: Strike
   become: true
   vars:
     k3s_user: root # change this to your preferred local user

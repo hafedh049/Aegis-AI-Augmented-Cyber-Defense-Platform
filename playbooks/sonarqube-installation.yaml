@@ -32,5 +32,87 @@
             sonarqube_extensions:
             sonarqube_logs:
 
-    - name: Start SonarQube
-      command: docker compose -f /opt/sonarqube/docker-compose.yml up -d
+    - name: Create systemd service for SonarQube
+      copy:
+        dest: /etc/systemd/system/sonarqube.service
+        content: |
+          [Unit]
+          Description=SonarQube Docker Container
+          After=docker.service
+          Requires=docker.service
+
+          [Service]
+          WorkingDirectory=/opt/sonarqube
+          ExecStart=/usr/bin/docker compose -f /opt/sonarqube/docker-compose.yml up
+          ExecStop=/usr/bin/docker compose -f /opt/sonarqube/docker-compose.yml down
+          Restart=always
+          TimeoutStartSec=0
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: reload systemd
+
+    - name: Start and enable SonarQube service
+      systemd:
+        name: sonarqube
+        state: started
+        enabled: true
+
+    - name: Wait for SonarQube to be ready
+      wait_for:
+        host: 127.0.0.1
+        port: 9000
+        delay: 10
+        timeout: 300
+
+    - name: Check if project Aegis exists
+      uri:
+        url: "http://127.0.0.1:9000/api/projects/search?projects=Aegis"
+        method: GET
+        user: admin
+        password: admin
+        force_basic_auth: yes
+        status_code: 200
+      register: project_check
+
+    - name: Create project Aegis if not exists
+      uri:
+        url: "http://127.0.0.1:9000/api/projects/create"
+        method: POST
+        user: admin
+        password: admin
+        force_basic_auth: yes
+        body_format: form-urlencoded
+        body:
+          name: "Aegis"
+          project: "Aegis"
+      when: project_check.json.paging.total == 0
+
+    - name: Check if token file exists
+      stat:
+        path: /root/aegis-token
+      register: token_file
+
+    - name: Create token for project Aegis if not exists
+      uri:
+        url: "http://127.0.0.1:9000/api/user_tokens/generate"
+        method: POST
+        user: admin
+        password: admin
+        force_basic_auth: yes
+        body_format: form-urlencoded
+        body:
+          name: "Aegis-Token"
+      register: token_response
+      when: not token_file.stat.exists
+
+    - name: Save project token
+      copy:
+        dest: /root/aegis-token
+        mode: "0600"
+        content: "{{ token_response.json.token }}"
+      when: not token_file.stat.exists
+
+  handlers:
+    - name: reload systemd
+      command: systemctl daemon-reload

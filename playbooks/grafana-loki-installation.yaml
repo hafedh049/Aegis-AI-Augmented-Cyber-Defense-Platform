@@ -1,3 +1,4 @@
+---
 - name: Install Grafana and Loki (Central)
   hosts: Strike
   become: true
@@ -14,7 +15,7 @@
         - /opt/logging/loki/cache
         - /opt/logging/loki/wal
         - /opt/logging/loki/compactor
-        - /opt/logging/provisioning/datasources # 👈 add provisioning dir
+        - /opt/logging/provisioning/datasources
 
     - name: Create docker-compose.yml for Grafana+Loki
       copy:
@@ -49,7 +50,7 @@
                 - loki
               volumes:
                 - grafana-data:/var/lib/grafana
-                - /opt/logging/provisioning:/etc/grafana/provisioning   # 👈 mount provisioning
+                - /opt/logging/provisioning:/etc/grafana/provisioning
 
           volumes:
             grafana-data:
@@ -122,5 +123,31 @@
               url: http://loki:3100
               isDefault: true
 
-    - name: Start services
-      command: docker compose -f /opt/logging/docker-compose.yml up -d
+    - name: Create systemd service for Grafana+Loki stack
+      copy:
+        dest: /etc/systemd/system/logging-stack.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Grafana + Loki Logging Stack
+          Requires=docker.service
+          After=docker.service
+
+          [Service]
+          Type=oneshot
+          RemainAfterExit=true
+          WorkingDirectory=/opt/logging
+          ExecStart=/usr/bin/docker compose -f /opt/logging/docker-compose.yml up -d
+          ExecStop=/usr/bin/docker compose -f /opt/logging/docker-compose.yml down
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Reload systemd daemon
+      command: systemctl daemon-reexec
+
+    - name: Enable logging stack service
+      systemd:
+        name: logging-stack.service
+        enabled: true
+        state: started

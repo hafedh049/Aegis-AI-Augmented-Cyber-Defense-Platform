@@ -1,28 +1,17 @@
-- name: Remove Trivy from Strike
+- name: Remove Dockerized Trivy from Strike
   hosts: Strike
   become: true
   tasks:
-    - name: Remove Trivy binary
+    - name: Remove Trivy alias script
       file:
         path: /usr/local/bin/trivy
         state: absent
 
+    - name: Remove Trivy Docker image
+      command: docker rmi -f aquasec/trivy:latest
+      ignore_errors: true
+
     - name: Remove Trivy cache directory
       file:
-        path: /root/.cache/trivy
+        path: "{{ ansible_env.HOME }}/.cache"
         state: absent
-
-    - name: Ensure Trivy is gone
-      command: which trivy
-      register: trivy_check
-      ignore_errors: true
-      changed_when: false
-
-    - name: Show removal status
-      debug:
-        msg: >-
-          {% if trivy_check.rc != 0 %}
-            ✅ Trivy successfully removed
-          {% else %}
-            ⚠️ Trivy still exists at {{ trivy_check.stdout }}
-          {% endif %}

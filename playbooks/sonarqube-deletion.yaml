@@ -1,9 +1,24 @@
-- name: Remove SonarQube
+- name: Remove SonarQube completely
   hosts: Strike
   become: true
   tasks:
+    - name: Stop SonarQube systemd service
+      systemd:
+        name: sonarqube
+        state: stopped
+        enabled: no
+      ignore_errors: true
+
+    - name: Remove SonarQube systemd service file
+      file:
+        path: /etc/systemd/system/sonarqube.service
+        state: absent
+      notify: reload systemd
+
     - name: Stop and remove SonarQube containers
-      command: docker compose -f /opt/sonarqube/docker-compose.yml down
+      command: docker compose -f /opt/sonarqube/docker-compose.yml down -v
+      args:
+        warn: false
       ignore_errors: true
 
     - name: Remove SonarQube directory
@@ -11,10 +26,11 @@
         path: /opt/sonarqube
         state: absent
 
-    - name: Remove SonarQube Docker image
-      command: docker rmi sonarqube:latest
-      ignore_errors: true
+    - name: Remove saved project token
+      file:
+        path: /root/aegis-token
+        state: absent
 
-    - name: Prune unused Docker volumes
-      command: docker volume prune -f
-      ignore_errors: true
+  handlers:
+    - name: reload systemd
+      command: systemctl daemon-reload

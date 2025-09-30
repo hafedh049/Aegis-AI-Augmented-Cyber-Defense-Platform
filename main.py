@@ -83,9 +83,20 @@ def create_vms():
                 try:
                     ip = subprocess.check_output(ip_cmd).decode().strip()
                     if ip:
+                        # Connect with paramiko and install the packages, nmap, tree, 7zip, docker.io docker-compose
+                        ssh = paramiko.SSHClient()
+                        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                        ssh.connect(
+                            ip, username=BASE_VM_USERNAME, password=BASE_VM_PASSWORD
+                        )
+                        ssh.exec_command(
+                            "apt update && apt install -y nmap tree 7zip docker.io docker-compose"
+                        )
+                        ssh.close()
                         break
                 except subprocess.CalledProcessError:
                     continue
+            logger.info(f"VM {name} has IP {ip}")
 
             vm["path"] = vm_path
             vm["ip"] = ip
@@ -122,7 +133,7 @@ def configure_ansible_master():
     ssh.connect(ansible_master_ip, username=BASE_VM_USERNAME, password=BASE_VM_PASSWORD)
 
     commands = [
-        "apt update"
+        "apt-get update -y",
         "apt-get install -y ansible* python3-pip sshpass tree jq 7zip nmap docker.io docker-compose",
         "ansible-galaxy collection install ansible.posix community.general",
         "echo '[defaults]' | tee /root/ansible.cfg",
