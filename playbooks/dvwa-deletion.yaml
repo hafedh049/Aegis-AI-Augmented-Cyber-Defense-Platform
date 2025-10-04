@@ -11,7 +11,7 @@
     # Stop and remove containers
     # ---------------------------
     - name: Stop and remove DVWA containers
-      command: docker compose -f "{{ dvwa_compose_path }}" down -v
+      command: docker-compose -f "{{ dvwa_compose_path }}" down -v
       ignore_errors: true
 
     # ---------------------------

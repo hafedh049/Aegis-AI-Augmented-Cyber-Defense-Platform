@@ -137,8 +137,8 @@
           Type=oneshot
           RemainAfterExit=true
           WorkingDirectory=/opt/logging
-          ExecStart=/usr/bin/docker compose -f /opt/logging/docker-compose.yml up -d
-          ExecStop=/usr/bin/docker compose -f /opt/logging/docker-compose.yml down
+          ExecStart=docker-compose -f /opt/logging/docker-compose.yml up -d
+          ExecStop=docker-compose -f /opt/logging/docker-compose.yml down
 
           [Install]
           WantedBy=multi-user.target

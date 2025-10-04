@@ -1,6 +1,6 @@
 ---
 - name: Remove n8n installation
-  hosts: n8n-host
+  hosts: Strike
   become: true
   tasks:
     - name: Stop n8n container

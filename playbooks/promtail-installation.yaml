@@ -47,4 +47,4 @@
                     __path__: /var/log/*log
 
     - name: Start Promtail
-      command: docker compose -f /opt/promtail/docker-compose.yml up -d
+      command: docker-compose -f /opt/promtail/docker-compose.yml up -d

@@ -90,7 +90,7 @@ def create_vms():
                             ip, username=BASE_VM_USERNAME, password=BASE_VM_PASSWORD
                         )
                         ssh.exec_command(
-                            "apt update && apt install -y nmap tree 7zip docker.io docker-compose"
+                            "apt update && apt install -y nmap tree 7zip docker.io docker-compose python3-distutils"
                         )
                         ssh.close()
                         break
@@ -134,7 +134,7 @@ def configure_ansible_master():
 
     commands = [
         "apt-get update -y",
-        "apt-get install -y ansible* python3-pip sshpass tree jq 7zip nmap docker.io docker-compose",
+        "apt-get install -y ansible* python3-pip sshpass tree jq 7zip nmap docker.io docker-compose python3-distutils",
         "ansible-galaxy collection install ansible.posix community.general",
         "echo '[defaults]' | tee /root/ansible.cfg",
         "echo 'inventory = /root/inventory' | tee -a /root/ansible.cfg",

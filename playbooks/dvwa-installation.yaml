@@ -1,4 +1,3 @@
----
 - name: Deploy DVWA using Docker (fully automated DB setup)
   hosts: Vulner
   become: true
@@ -11,13 +10,27 @@
     db_name: dvwa
     db_user: dvwa_user
     db_password: dvwa_pass
-    # where to put compose file
     dvwa_compose_path: /root/dvwa-docker-compose.yml
-    # temp files used during setup
     dvwa_cookie_file: /tmp/dvwa_cookies
     dvwa_setup_html: /tmp/dvwa_setup.html
     dvwa_token_path: /tmp/dvwa_token
   tasks:
+    # ---------------------------
+    # Upgrade pip + setuptools first
+    # ---------------------------
+    - name: Ensure pip is installed for Python 3
+      apt:
+        name: python3-pip
+        state: present
+        update_cache: yes
+
+    - name: Upgrade setuptools (with break-system-packages if needed)
+      pip:
+        name: setuptools
+        state: latest
+        executable: pip3
+        extra_args: "--break-system-packages"
+
     # ---------------------------
     # Ensure system prerequisites
     # ---------------------------
@@ -88,7 +101,7 @@
     # Launch DVWA containers
     # ---------------------------
     - name: Launch DVWA using Docker Compose
-      command: docker compose -f "{{ dvwa_compose_path }}" up -d
+      command: docker-compose -f "{{ dvwa_compose_path }}" up -d
       args:
         chdir: /root
 

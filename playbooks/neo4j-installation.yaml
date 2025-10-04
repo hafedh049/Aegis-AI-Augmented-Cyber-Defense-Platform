@@ -55,7 +55,7 @@
     # Deploy Neo4j containers
     # ---------------------------
     - name: Launch Neo4j using Docker Compose
-      command: docker compose -f /root/neo4j-docker-compose.yml up -d
+      command: docker-compose -f /root/neo4j-docker-compose.yml up -d
       args:
         chdir: /root
 

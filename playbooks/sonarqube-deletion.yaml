@@ -16,7 +16,7 @@
       notify: reload systemd
 
     - name: Stop and remove SonarQube containers
-      command: docker compose -f /opt/sonarqube/docker-compose.yml down -v
+      command: docker-compose -f /opt/sonarqube/docker-compose.yml down -v
       args:
         warn: false
       ignore_errors: true

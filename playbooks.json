@@ -3,35 +3,35 @@
     "deletion": "dvwa-deletion.yaml",
     "installation": "dvwa-installation.yaml",
     "name": "DVWA",
-    "execute_deletion": true,
+    "execute_deletion": false,
     "execute_installation": true
   },
   {
     "deletion": "mongodb-deletion.yaml",
     "installation": "mongodb-installation.yaml",
     "name": "MongoDB",
-    "execute_deletion": true,
+    "execute_deletion": false,
     "execute_installation": true
   },
   {
     "deletion": "neo4j-deletion.yaml",
     "installation": "neo4j-installation.yaml",
     "name": "Neo4j",
-    "execute_deletion": true,
+    "execute_deletion": false,
     "execute_installation": true
   },
   {
     "deletion": "k3s-deletion.yaml",
     "installation": "k3s-installation.yaml",
     "name": "K3s",
-    "execute_deletion": true,
+    "execute_deletion": false,
     "execute_installation": true
   },
   {
     "deletion": "cowrie-deletion.yaml",
     "installation": "cowrie-installation.yaml",
     "name": "Cowrie",
-    "execute_deletion": true,
+    "execute_deletion": false,
     "execute_installation": true
   },
 
@@ -39,42 +39,42 @@
     "deletion": "caldera-deletion.yaml",
     "installation": "caldera-installation.yaml",
     "name": "Caldera MITRE",
-    "execute_deletion": true,
+    "execute_deletion": false,
     "execute_installation": true
   },
   {
     "deletion": "grafana-loki-deletion.yaml",
     "installation": "grafana-loki-installation.yaml",
     "name": "Grafana Loki",
-    "execute_deletion": true,
+    "execute_deletion": false,
     "execute_installation": true
   },
   {
     "deletion": "promtail-deletion.yaml",
     "installation": "promtail-installation.yaml",
     "name": "Promtail",
-    "execute_deletion": true,
+    "execute_deletion": false,
     "execute_installation": true
   },
   {
     "deletion": "n8n-deletion.yaml",
     "installation": "n8n-installation.yaml",
     "name": "N8N",
-    "execute_deletion": true,
+    "execute_deletion": false,
     "execute_installation": true
   },
   {
     "deletion": "trivy-deletion.yaml",
     "installation": "trivy-installation.yaml",
     "name": "Trivy",
-    "execute_deletion": true,
+    "execute_deletion": false,
     "execute_installation": true
   },
   {
     "deletion": "sonarqube-deletion.yaml",
     "installation": "sonarqube-installation.yaml",
     "name": "SonarQube",
-    "execute_deletion": true,
+    "execute_deletion": false,
     "execute_installation": true
   }
 ]

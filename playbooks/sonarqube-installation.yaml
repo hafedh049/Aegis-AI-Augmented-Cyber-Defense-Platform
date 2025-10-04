@@ -43,8 +43,8 @@
 
           [Service]
           WorkingDirectory=/opt/sonarqube
-          ExecStart=/usr/bin/docker compose -f /opt/sonarqube/docker-compose.yml up
-          ExecStop=/usr/bin/docker compose -f /opt/sonarqube/docker-compose.yml down
+          ExecStart=docker-compose -f /opt/sonarqube/docker-compose.yml up -d
+          ExecStop=docker-compose -f /opt/sonarqube/docker-compose.yml down
           Restart=always
           TimeoutStartSec=0
 
