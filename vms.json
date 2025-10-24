@@ -1,19 +1,25 @@
 [
     {
-        "name": "Ansible CP",
-        "path": "D:/Virtual Machines/Ansible-CP/Ansible-CP.vmx",
+        "name": "Controller",
+        "path": "D:/Virtual Machines/Controller/Controller.vmx",
         "ip": "192.168.74.142",
         "state": "start"
     },
     {
-        "name": "Strike",
-        "path": "D:/Virtual Machines/Strike/Strike.vmx",
+        "name": "Caldera",
+        "path": "D:/Virtual Machines/Caldera/Caldera.vmx",
+        "ip": "192.168.74.143",
+        "state": "start"
+    },
+    {
+        "name": "Arsenal",
+        "path": "D:/Virtual Machines/Arsenal/Arsenal.vmx",
         "ip": "192.168.74.144",
         "state": "start"
     },
     {
-        "name": "Vulner",
-        "path": "D:/Virtual Machines/Vulner/Vulner.vmx",
+        "name": "HoneyNet",
+        "path": "D:/Virtual Machines/HoneyNet/HoneyNet.vmx",
         "ip": "192.168.74.146",
         "state": "start"
     }

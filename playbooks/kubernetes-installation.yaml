@@ -1,0 +1,78 @@
+---
+- name: Deploy k3s Kubernetes Cluster
+  hosts: Arsenal
+  vars:
+    k3s_user: "{{ K3S_USER }}"
+
+  tasks:
+    # ============================================================
+    # k3s Installation
+    # ============================================================
+    - name: "[K3S] Ensure k3s_user is defined"
+      assert:
+        that: k3s_user is defined
+        fail_msg: "K3S_USER must be defined (e.g., 'ubuntu', 'root', 'ansible')."
+
+    - name: "[K3S] Download and install k3s"
+      shell: |
+        curl -sfL https://get.k3s.io | sh -
+      args:
+        creates: /usr/local/bin/k3s
+      register: k3s_install
+      changed_when: "'already installed' not in k3s_install.stdout"
+
+    - name: "[K3S] Ensure k3s service is enabled and running"
+      systemd:
+        name: k3s
+        state: started
+        enabled: true
+        daemon_reload: yes
+
+    - name: "[K3S] Wait for k3s control plane to be ready"
+      shell: |
+        /usr/local/bin/kubectl get nodes --no-headers | grep -q "Ready"
+      register: k3s_ready
+      retries: 30
+      delay: 10
+      until: k3s_ready.rc == 0
+      become: true
+
+    - name: "[K3S] Ensure ~/.kube directory exists for {{ k3s_user }}"
+      file:
+        path: "/home/{{ k3s_user }}/.kube"
+        state: directory
+        owner: "{{ k3s_user }}"
+        group: "{{ k3s_user }}"
+        mode: "0700"
+      when: k3s_user != "root"
+
+    - name: "[K3S] Ensure ~/.kube directory exists for root"
+      file:
+        path: "/root/.kube"
+        state: directory
+        mode: "0700"
+      when: k3s_user == "root"
+
+    - name: "[K3S] Copy kubeconfig to user's home"
+      copy:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: "{{ (k3s_user == 'root') | ternary('/root/.kube/config', '/home/' + k3s_user + '/.kube/config') }}"
+        owner: "{{ k3s_user }}"
+        group: "{{ k3s_user }}"
+        mode: "0600"
+        remote_src: yes
+
+    - name: "[K3S] Replace localhost with 127.0.0.1 in kubeconfig (for remote kubectl)"
+      replace:
+        path: "{{ (k3s_user == 'root') | ternary('/root/.kube/config', '/home/' + k3s_user + '/.kube/config') }}"
+        regexp: "127.0.0.1"
+        replace: "127.0.0.1"
+      # Optional: if you plan to access the cluster remotely, you may want to replace "localhost" with the node's IP
+      # But for local use, 127.0.0.1 is fine.
+
+    - name: "[K3S] Deployment complete"
+      debug:
+        msg: |
+          ✅ k3s is installed and ready!
+          - User '{{ k3s_user }}' can now run: kubectl get nodes
+          - Kubeconfig: {{ (k3s_user == 'root') | ternary('/root/.kube/config', '/home/' + k3s_user + '/.kube/config') }}

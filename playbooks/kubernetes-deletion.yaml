@@ -1,0 +1,74 @@
+---
+- name: COMPLETE WIPEOUT - Remove k3s Kubernetes Cluster
+  hosts: K3s
+  tasks:
+    # ------------------------------------------------------------
+    # RUN OFFICIAL K3S UNINSTALL SCRIPT (if it exists)
+    # ------------------------------------------------------------
+    - name: "[WIPEOUT] Run k3s-uninstall.sh if present"
+      command: /usr/local/bin/k3s-uninstall.sh
+      args:
+        removes: /usr/local/bin/k3s-uninstall.sh
+      ignore_errors: true
+
+    # ------------------------------------------------------------
+    # FALLBACK CLEANUP (in case uninstall script is missing)
+    # ------------------------------------------------------------
+    - name: "[WIPEOUT] Stop and disable k3s service (fallback)"
+      systemd:
+        name: k3s
+        state: stopped
+        enabled: false
+      ignore_errors: true
+
+    - name: "[WIPEOUT] Remove k3s service file (fallback)"
+      file:
+        path: /etc/systemd/system/k3s.service
+        state: absent
+
+    - name: "[WIPEOUT] Reload systemd (fallback)"
+      systemd:
+        daemon_reload: yes
+
+    - name: "[WIPEOUT] Remove k3s binaries and symlinks (fallback)"
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /usr/local/bin/k3s
+        - /usr/local/bin/kubectl
+        - /usr/local/bin/crictl
+        - /usr/local/bin/ctr
+        - /usr/local/bin/k3s-uninstall.sh
+
+    - name: "[WIPEOUT] Remove k3s data and config directories (fallback)"
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/rancher/k3s
+        - /var/lib/rancher/k3s
+        - /run/k3s
+        - /var/log/k3s.log
+
+    - name: "[WIPEOUT] Remove any leftover kubeconfig files for common users"
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /root/.kube/config
+        - /home/ubuntu/.kube/config
+        - /home/ansible/.kube/config
+        - /home/admin/.kube/config
+      ignore_errors: true
+
+    # ------------------------------------------------------------
+    # FINAL CONFIRMATION
+    # ------------------------------------------------------------
+    - name: "[WIPEOUT] Confirm k3s removal"
+      debug:
+        msg: |
+          🔥 k3s has been completely removed from {{ inventory_hostname }}.
+          - Service stopped and disabled.
+          - Binaries, configs, and data purged.
+          - No traces of Kubernetes remain.

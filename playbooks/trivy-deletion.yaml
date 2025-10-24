@@ -1,17 +1,47 @@
-- name: Remove Dockerized Trivy from Strike
-  hosts: Strike
-  become: true
+---
+- name: COMPLETE WIPEOUT - Remove Trivy (Docker-based) from Arsenal
+  hosts: Arsenal
   tasks:
-    - name: Remove Trivy alias script
+    # ------------------------------------------------------------
+    # 1. Remove the Trivy alias/wrapper script
+    # ------------------------------------------------------------
+    - name: "[WIPEOUT] Remove Trivy wrapper script"
       file:
         path: /usr/local/bin/trivy
         state: absent
 
-    - name: Remove Trivy Docker image
-      command: docker rmi -f aquasec/trivy:latest
+    # ------------------------------------------------------------
+    # 2. Remove the Trivy Docker image
+    # ------------------------------------------------------------
+    - name: "[WIPEOUT] Remove Trivy Docker image"
+      docker_image:
+        name: aquasec/trivy
+        tag: latest
+        state: absent
       ignore_errors: true
 
-    - name: Remove Trivy cache directory
+    # ------------------------------------------------------------
+    # 3. (Optional but recommended) Clean up Trivy cache
+    # ------------------------------------------------------------
+    - name: "[WIPEOUT] Remove Trivy cache in root"
       file:
-        path: "{{ ansible_env.HOME }}/.cache"
+        path: /root/.cache/trivy
         state: absent
+      ignore_errors: true
+
+    - name: "[WIPEOUT] Remove Trivy cache in common user homes"
+      file:
+        path: "{{ item }}/.cache/trivy"
+        state: absent
+      loop:
+        - /home/ubuntu
+        - /home/ansible
+        - /home/admin
+      ignore_errors: true
+
+    # ------------------------------------------------------------
+    # Final message
+    # ------------------------------------------------------------
+    - name: "[WIPEOUT] Confirm Trivy removal"
+      debug:
+        msg: "✅ Trivy has been fully removed from {{ inventory_hostname }}."

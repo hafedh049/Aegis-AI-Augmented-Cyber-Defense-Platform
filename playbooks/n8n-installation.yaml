@@ -1,30 +1,54 @@
 ---
-- name: Install n8n (workflow automation) and set up workflows
-  hosts: Strike
-  become: true
+- name: Deploy n8n Automation Platform with Predefined Workflows
+  hosts: Arsenal
   vars:
-    n8n_dir: /opt/n8n
-    workflows_dir: /opt/n8n/workflows
-    n8n_user: admin
-    n8n_pass: admin
-    n8n_host: "http://localhost"
-    n8n_port: 5678
-    grok_api_key: "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"
+    n8n_dir: "{{ N8N_DIR }}"
+    workflows_dir: "{{ WORKFLOWS_DIR }}"
+    n8n_user: "{{ N8N_USER }}"
+    n8n_pass: "{{ N8N_PASSWORD }}"
+    n8n_host: "{{ N8N_HOST }}"
+    n8n_port: "{{ N8N_PORT }}"
+    n8n_container_name: "{{ N8N_CONTAINER_NAME }}"
+    grok_api_key: "{{ GROK_API_KEY }}"
+    slack_webhook: "{{ SLACK_WEBHOOK }}"
+    discord_webhook: "{{ DISCORD_WEBHOOK }}"
+    honeypot_ssh_password: "{{ HONEYPOT_SSH_PASSWORD | default('change_me') }}"
+    caldera_ip: "{{ hostvars['Caldera']['ansible_default_ipv4']['address'] | default('127.0.0.1') }}"
+    grafana_username: "{{ GRAFANA_USER }}"
+    grafana_password: "{{ GRAFANA_PASSWORD }}"
 
   tasks:
-    - name: Ensure n8n directory exists
+    - name: "[N8N] Ensure required variables are defined"
+      assert:
+        that:
+          - n8n_dir is defined
+          - n8n_user is defined
+          - n8n_pass is defined
+          - n8n_host is defined
+          - n8n_port is defined
+          - grok_api_key is defined
+          - slack_webhook is defined
+          - discord_webhook is defined
+          - grafana_username is defined
+          - grafana_password is defined
+        fail_msg: "Missing one or more required n8n variables."
+
+    # ============================================================
+    # n8n Installation and Workflow Setup
+    # ============================================================
+    - name: "[N8N] Ensure n8n directory exists"
       file:
         path: "{{ n8n_dir }}"
         state: directory
         mode: "0755"
 
-    - name: Ensure workflows directory exists
+    - name: "[N8N] Ensure workflows directory exists"
       file:
         path: "{{ workflows_dir }}"
         state: directory
         mode: "0755"
 
-    - name: Create docker-compose.yml for n8n
+    - name: "[N8N] Create docker-compose.yml for n8n"
       copy:
         dest: "{{ n8n_dir }}/docker-compose.yml"
         content: |
@@ -32,14 +56,14 @@
           services:
             n8n:
               image: n8nio/n8n:latest
-              container_name: n8n
+              container_name: "{{ n8n_container_name }}"
               restart: always
               ports:
-                - "5678:5678"
+                - "{{ n8n_port }}:{{ n8n_port }}"
               environment:
                 - N8N_BASIC_AUTH_ACTIVE=true
-                - N8N_BASIC_AUTH_USER={{ n8n_user }}
-                - N8N_BASIC_AUTH_PASSWORD={{ n8n_pass }}
+                - N8N_BASIC_AUTH_USER={{ n8n_user | regex_replace('^"|"$', '') }}
+                - N8N_BASIC_AUTH_PASSWORD={{ n8n_pass | regex_replace('^"|"$', '') }}
                 - N8N_SECURE_COOKIE=false
                 - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
                 - DB_SQLITE_POOL_SIZE=5
@@ -52,17 +76,43 @@
           volumes:
             n8n_data:
 
-    - name: Start n8n
+    - name: "[N8N] Install Docker and docker-compose (if not present)"
+      apt:
+        name:
+          - docker.io
+          - docker-compose
+        state: present
+        update_cache: yes
+
+    - name: "[N8N] Enable and start Docker"
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: "[N8N] Start n8n"
       command: docker-compose -f "{{ n8n_dir }}/docker-compose.yml" up -d
+      args:
+        chdir: "{{ n8n_dir }}"
 
-    - name: Wait for n8n to be available
-      wait_for:
-        host: 127.0.0.1
-        port: 5678
-        delay: 5
-        timeout: 120
+    - name: "[N8N] Wait for n8n HTTP to be ready"
+      uri:
+        url: "{{ n8n_host }}:{{ n8n_port }}"
+        method: GET
+        return_content: no
+        status_code: 200
+        timeout: 10
+      register: n8n_response
+      retries: 30
+      delay: 10
+      until: n8n_response.status == 200
+      ignore_errors: true
 
-    - name: Copy RAG workflow JSON
+    # -------------------------------
+    # WORKFLOW DEFINITIONS (with inline quote cleaning)
+    # -------------------------------
+
+    - name: "[N8N] Copy RAG workflow JSON"
       copy:
         dest: "{{ workflows_dir }}/rag.json"
         content: |
@@ -86,7 +136,7 @@
                     "query": "Hi"
                   },
                   "headersJson": {
-                    "Authorization": "Bearer {{ grok_api_key }}"
+                    "Authorization": "Bearer {{ grok_api_key | regex_replace('^\"|\"$', '') }}"
                   }
                 },
                 "name": "Call Grok API",
@@ -106,7 +156,7 @@
             }
           }
 
-    - name: Copy Notification workflow JSON
+    - name: "[N8N] Copy Notification workflow JSON"
       copy:
         dest: "{{ workflows_dir }}/notification.json"
         content: |
@@ -123,16 +173,7 @@
               },
               {
                 "parameters": {
-                  "webhookUri": "YOUR_TEAMS_WEBHOOK_URL"
-                },
-                "name": "Teams Notification",
-                "type": "n8n-nodes-base.microsoftTeams",
-                "typeVersion": 1,
-                "position": [450, 200]
-              },
-              {
-                "parameters": {
-                  "webhookUrl": "YOUR_SLACK_WEBHOOK_URL"
+                  "webhookUrl": "{{ slack_webhook | regex_replace('^\"|\"$', '') }}"
                 },
                 "name": "Slack Notification",
                 "type": "n8n-nodes-base.slack",
@@ -141,19 +182,7 @@
               },
               {
                 "parameters": {
-                  "fromEmail": "your-email@gmail.com",
-                  "toEmail": "recipient@gmail.com",
-                  "subject": "Notification",
-                  "text": "This is a test notification from n8n"
-                },
-                "name": "Gmail Notification",
-                "type": "n8n-nodes-base.gmail",
-                "typeVersion": 1,
-                "position": [450, 400]
-              },
-              {
-                "parameters": {
-                  "webhookUrl": "YOUR_DISCORD_WEBHOOK_URL",
+                  "webhookUrl": "{{ discord_webhook | regex_replace('^\"|\"$', '') }}",
                   "content": "Test Discord notification"
                 },
                 "name": "Discord Notification",
@@ -166,9 +195,7 @@
               "Start": {
                 "main": [
                   [
-                    { "node": "Teams Notification", "type": "main", "index": 0 },
                     { "node": "Slack Notification", "type": "main", "index": 0 },
-                    { "node": "Gmail Notification", "type": "main", "index": 0 },
                     { "node": "Discord Notification", "type": "main", "index": 0 }
                   ]
                 ]
@@ -176,7 +203,7 @@
             }
           }
 
-    - name: Copy Block Caldera workflow JSON (raw)
+    - name: "[N8N] Copy Block Caldera workflow JSON"
       copy:
         dest: "{{ workflows_dir }}/block-caldera.json"
         content: |
@@ -195,9 +222,9 @@
               {
                 "parameters": {
                   "command": "sudo iptables -A INPUT -s {{$json[\"attacker_ip\"]}} -j DROP",
-                  "host": "HONEYPOT_VM_IP",
+                  "host": "{{ caldera_ip | regex_replace('^\"|\"$', '')}}",
                   "username": "root",
-                  "password": "HONEYPOT_PASS"
+                  "password": "{{ honeypot_ssh_password | regex_replace('^\"|\"$', '') }}"
                 },
                 "name": "Block IP on Honeypot",
                 "type": "n8n-nodes-base.ssh",
@@ -206,12 +233,18 @@
               }
             ],
             "connections": {
-              "Start": { "main":[ [ { "node":"Block IP on Honeypot", "type":"main", "index":0 } ] ] }
+              "Start": {
+                "main": [
+                  [
+                    { "node": "Block IP on Honeypot", "type": "main", "index": 0 }
+                  ]
+                ]
+              }
             }
           }
           {% endraw %}
 
-    - name: Copy Grafana Alerts workflow JSON
+    - name: "[N8N] Copy Grafana Alerts workflow JSON"
       copy:
         dest: "{{ workflows_dir }}/grafana-alerts.json"
         content: |
@@ -234,8 +267,8 @@
                     "sendBody": false
                   },
                   "auth": {
-                    "user": "admin",
-                    "password": "admin"
+                    "user": "{{ grafana_username | regex_replace('^\"|\"$', '') }}",
+                    "password": "{{ grafana_password | regex_replace('^\"|\"$', '') }}"
                   }
                 },
                 "name": "Fetch Grafana Alerts",
@@ -288,14 +321,25 @@
             }
           }
 
-    - name: Import Block Caldera workflow into n8n
-      command: docker exec n8n n8n import:workflow --input="/workflows/block-caldera.json" --overwrite
+    # -------------------------------
+    # IMPORT WORKFLOWS INTO N8N
+    # -------------------------------
+    - name: "[N8N] Import Block Caldera workflow into n8n"
+      command: docker exec {{ n8n_container_name }} n8n import:workflow --input="/workflows/block-caldera.json" --overwrite
 
-    - name: Import Grafana Alerts workflow into n8n
-      command: docker exec n8n n8n import:workflow --input="/workflows/grafana-alerts.json" --overwrite
+    - name: "[N8N] Import Grafana Alerts workflow into n8n"
+      command: docker exec {{ n8n_container_name }} n8n import:workflow --input="/workflows/grafana-alerts.json" --overwrite
 
-    - name: Import RAG workflow into n8n
-      command: docker exec n8n n8n import:workflow --input="/workflows/rag.json" --overwrite
+    - name: "[N8N] Import RAG workflow into n8n"
+      command: docker exec {{ n8n_container_name }} n8n import:workflow --input="/workflows/rag.json" --overwrite
 
-    - name: Import Notification workflow into n8n
-      command: docker exec n8n n8n import:workflow --input="/workflows/notification.json" --overwrite
+    - name: "[N8N] Import Notification workflow into n8n"
+      command: docker exec {{ n8n_container_name }} n8n import:workflow --input="/workflows/notification.json" --overwrite
+
+    - name: "[N8N] Deployment complete"
+      debug:
+        msg: |
+          ✅ n8n is running at {{ n8n_host }}:{{ n8n_port }}
+          - Login: {{ n8n_user | regex_replace('^"|"$', '') }} / [REDACTED]
+          - Workflows imported: RAG, Notification, Block Caldera, Grafana Alerts
+          - Workflow files stored in: {{ workflows_dir }}

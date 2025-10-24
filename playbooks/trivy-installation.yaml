@@ -1,30 +1,56 @@
-- name: Install Trivy in Docker on Strike
-  hosts: Strike
+---
+- name: Deploy Trivy via Docker
+  hosts: Arsenal
   become: true
+  gather_facts: true
+
+  vars:
+    trivy_image: "aquasec/trivy:latest"
+    trivy_container_name: "trivy"
+    trivy_cache_dir: "/opt/trivy/cache"
+    trivy_alias_path: "/usr/local/bin/trivy"
+
   tasks:
-    - name: Ensure Docker is installed
-      apt:
-        name: docker.io
-        state: present
-        update_cache: true
+    - name: Create cache directory for Trivy
+      ansible.builtin.file:
+        path: "{{ trivy_cache_dir }}"
+        state: directory
+        mode: "0755"
 
     - name: Pull Trivy Docker image
-      command: docker pull aquasec/trivy:latest
+      community.docker.docker_image:
+        name: "{{ trivy_image }}"
+        source: pull
 
-    - name: Create alias script for Trivy
-      copy:
-        dest: /usr/local/bin/trivy
+    - name: Run a test scan on alpine image to verify installation
+      community.docker.docker_container:
+        name: "{{ trivy_container_name }}"
+        image: "{{ trivy_image }}"
+        command: >
+          image --no-progress alpine:latest
+        volumes:
+          - "{{ trivy_cache_dir }}:/root/.cache/trivy"
+          - "/var/run/docker.sock:/var/run/docker.sock"
+        auto_remove: true
+        state: started
+        detach: false
+
+    - name: Create Trivy wrapper script
+      ansible.builtin.copy:
+        dest: "{{ trivy_alias_path }}"
         mode: "0755"
         content: |
           #!/bin/bash
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-            -v $HOME/.cache:/root/.cache \
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v {{ trivy_cache_dir }}:/root/.cache/trivy \
             aquasec/trivy:latest "$@"
 
-    - name: Verify Trivy installation
-      command: trivy --version
-      register: trivy_version
+    - name: Verify Trivy binary works
+      ansible.builtin.command: "{{ trivy_alias_path }} --version"
+      register: trivy_version_output
+      changed_when: false
 
-    - name: Show installed Trivy version
-      debug:
-        var: trivy_version.stdout
+    - name: Display Trivy version
+      ansible.builtin.debug:
+        msg: "✅ Trivy installed successfully and available as CLI: {{ trivy_version_output.stdout }}"

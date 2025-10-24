@@ -1,118 +1,173 @@
-- name: Install SonarQube
-  hosts: Strike
-  become: true
+---
+- name: Deploy SonarQube (Docker-based) on Arsenal
+  hosts: Arsenal
+  vars:
+    sonarqube_host: "{{ SONARQUBE_HOST }}"
+    sonarqube_port: "{{ SONARQUBE_PORT }}"
+    sonarqube_user: "{{ SONARQUBE_USER }}"
+    sonarqube_password: "{{ SONARQUBE_PASSWORD }}"
+    sonarqube_project: "{{ SONARQUBE_PROJECT }}"
+    sonarqube_container_name: "{{ SONARQUBE_CONTAINER_NAME }}"
+    sonarqube_image: "{{ SONARQUBE_IMAGE }}"
+
   tasks:
-    - name: Ensure SonarQube directory exists
+    # ============================================================
+    # SonarQube Installation (Docker-based, auto-start)
+    # ============================================================
+    - name: "[SONARQUBE] Ensure SonarQube directories exist"
       file:
-        path: /opt/sonarqube
+        path: "{{ item }}"
         state: directory
         mode: "0755"
+      loop:
+        - /opt/sonarqube/data
+        - /opt/sonarqube/extensions
+        - /opt/sonarqube/logs
 
-    - name: Create docker-compose.yml for SonarQube
-      copy:
-        dest: /opt/sonarqube/docker-compose.yml
-        content: |
-          version: "3"
-          services:
-            sonarqube:
-              image: sonarqube:latest
-              container_name: sonarqube
-              restart: always
-              ports:
-                - "9000:9000"
-              environment:
-                - SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true
-              volumes:
-                - sonarqube_data:/opt/sonarqube/data
-                - sonarqube_extensions:/opt/sonarqube/extensions
-                - sonarqube_logs:/opt/sonarqube/logs
+    - name: "[SONARQUBE] Fix permissions for SonarQube volumes (UID/GID 1000)"
+      file:
+        path: "{{ item }}"
+        owner: 1000
+        group: 1000
+        recurse: yes
+      loop:
+        - /opt/sonarqube/data
+        - /opt/sonarqube/extensions
+        - /opt/sonarqube/logs
 
-          volumes:
-            sonarqube_data:
-            sonarqube_extensions:
-            sonarqube_logs:
+    - name: "[SONARQUBE] Install Docker and docker-compose (if not present)"
+      apt:
+        name:
+          - docker.io
+          - docker-compose
+        state: present
+        update_cache: yes
 
-    - name: Create systemd service for SonarQube
-      copy:
-        dest: /etc/systemd/system/sonarqube.service
-        content: |
-          [Unit]
-          Description=SonarQube Docker Container
-          After=docker.service
-          Requires=docker.service
-
-          [Service]
-          WorkingDirectory=/opt/sonarqube
-          ExecStart=docker-compose -f /opt/sonarqube/docker-compose.yml up -d
-          ExecStop=docker-compose -f /opt/sonarqube/docker-compose.yml down
-          Restart=always
-          TimeoutStartSec=0
-
-          [Install]
-          WantedBy=multi-user.target
-      notify: reload systemd
-
-    - name: Start and enable SonarQube service
+    - name: "[SONARQUBE] Enable and start Docker"
       systemd:
-        name: sonarqube
+        name: docker
         state: started
-        enabled: true
+        enabled: yes
 
-    - name: Wait for SonarQube to be ready
-      wait_for:
-        host: 127.0.0.1
-        port: 9000
-        delay: 10
-        timeout: 300
+    - name: "[SONARQUBE] Pull SonarQube Docker image"
+      docker_image:
+        name: "{{ sonarqube_image }}"
+        tag: community
+        source: pull
 
-    - name: Check if project Aegis exists
+    - name: "[SONARQUBE] Run SonarQube container"
+      docker_container:
+        name: "{{ sonarqube_container_name }}"
+        image: "{{ sonarqube_image }}:community"
+        state: started
+        restart_policy: unless-stopped
+        published_ports:
+          - "{{ sonarqube_port }}:{{ sonarqube_port }}"
+        env:
+          SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"
+        volumes:
+          - /opt/sonarqube/data:/opt/sonarqube/data
+          - /opt/sonarqube/extensions:/opt/sonarqube/extensions
+          - /opt/sonarqube/logs:/opt/sonarqube/logs
+
+    - name: "[SONARQUBE] Wait for SonarQube HTTP to be ready"
       uri:
-        url: "http://127.0.0.1:9000/api/projects/search?projects=Aegis"
+        url: "{{ sonarqube_host }}:{{ sonarqube_port }}"
         method: GET
-        user: admin
-        password: admin
+        return_content: no
+        status_code: 200
+        timeout: 10
+      register: sonarqube_response
+      retries: 100
+      delay: 10
+      until: sonarqube_response.status == 200
+      ignore_errors: true
+
+    # ============================================================
+    # Check if Project Exists
+    # ============================================================
+    - name: "[SONARQUBE] Check if project {{ sonarqube_project }} exists"
+      uri:
+        url: "{{ sonarqube_host }}:{{ sonarqube_port }}/api/projects/search?projects={{ sonarqube_project }}"
+        method: GET
+        user: "{{ sonarqube_user }}"
+        password: "{{ sonarqube_password }}"
         force_basic_auth: yes
         status_code: 200
       register: project_check
+      retries: 30
+      delay: 10
+      until: project_check.status == 200
+      ignore_errors: true
 
-    - name: Create project Aegis if not exists
+    # ============================================================
+    # Create Project If Not Exists
+    # ============================================================
+    - name: "[SONARQUBE] Create project {{ sonarqube_project }} if not exists"
       uri:
-        url: "http://127.0.0.1:9000/api/projects/create"
+        url: "{{ sonarqube_host }}:{{ sonarqube_port }}/api/projects/create"
         method: POST
-        user: admin
-        password: admin
+        user: "{{ sonarqube_user }}"
+        password: "{{ sonarqube_password }}"
         force_basic_auth: yes
         body_format: form-urlencoded
         body:
-          name: "Aegis"
-          project: "Aegis"
-      when: project_check.json.paging.total == 0
+          name: "{{ sonarqube_project }}"
+          project: "{{ sonarqube_project }}"
+      when: project_check.json is defined and project_check.json.paging.total == 0
 
-    - name: Check if token file exists
+    # ============================================================
+    # Check if Token File Already Exists
+    # ============================================================
+    - name: "[SONARQUBE] Check if token file exists"
       stat:
-        path: /root/aegis-token
+        path: "/root/{{ sonarqube_project | lower }}-token"
       register: token_file
 
-    - name: Create token for project Aegis if not exists
+    # ============================================================
+    # Generate Token Only If No File Found
+    # ============================================================
+    - name: "[SONARQUBE] Generate new token if not exists"
       uri:
-        url: "http://127.0.0.1:9000/api/user_tokens/generate"
+        url: "{{ sonarqube_host }}:{{ sonarqube_port }}/api/user_tokens/generate"
         method: POST
-        user: admin
-        password: admin
+        user: "{{ sonarqube_user }}"
+        password: "{{ sonarqube_password }}"
         force_basic_auth: yes
         body_format: form-urlencoded
         body:
-          name: "Aegis-Token"
+          name: "{{ sonarqube_project }}-Token"
       register: token_response
       when: not token_file.stat.exists
 
-    - name: Save project token
+    # ============================================================
+    # Save Token to File If Newly Created
+    # ============================================================
+    - name: "[SONARQUBE] Save token to file"
       copy:
-        dest: /root/aegis-token
+        dest: "/root/{{ sonarqube_project | lower }}-token"
         mode: "0600"
         content: "{{ token_response.json.token }}"
       when: not token_file.stat.exists
 
-  handlers:
-    - name: reload systemd
-      command: systemctl daemon-reload
+    # ============================================================
+    # Read Token From Existing File
+    # ============================================================
+    - name: "[SONARQUBE] Read existing token from file"
+      slurp:
+        path: "/root/{{ sonarqube_project | lower }}-token"
+      register: existing_token
+      when: token_file.stat.exists
+
+    - name: "[SONARQUBE] Set final token fact"
+      set_fact:
+        sonar_token: >-
+          {{ token_response.json.token if not token_file.stat.exists else (existing_token.content | b64decode) }}
+
+    - name: "[SONARQUBE] Deployment complete"
+      debug:
+        msg: |
+          ✅ SonarQube is running at {{ sonarqube_host }}:{{ sonarqube_port }}
+          - Project: {{ sonarqube_project }}
+          - Token file: /root/{{ sonarqube_project | lower }}-token
+          - Use token for CI/CD analysis

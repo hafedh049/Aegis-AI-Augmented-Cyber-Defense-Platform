@@ -2,7 +2,7 @@ import os
 import json
 import subprocess
 import paramiko
-from dotenv import load_dotenv
+from dotenv import load_dotenv, dotenv_values
 import time
 from pathlib import Path
 import logging
@@ -83,16 +83,6 @@ def create_vms():
                 try:
                     ip = subprocess.check_output(ip_cmd).decode().strip()
                     if ip:
-                        # Connect with paramiko and install the packages, nmap, tree, 7zip, docker.io docker-compose
-                        ssh = paramiko.SSHClient()
-                        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-                        ssh.connect(
-                            ip, username=BASE_VM_USERNAME, password=BASE_VM_PASSWORD
-                        )
-                        ssh.exec_command(
-                            "apt update && apt install -y nmap tree 7zip docker.io docker-compose python3-distutils"
-                        )
-                        ssh.close()
                         break
                 except subprocess.CalledProcessError:
                     continue
@@ -113,7 +103,7 @@ def configure_ansible_master():
 
     ansible_master_ip = None
     for vm in vms:
-        if vm["name"] == "Ansible CP":
+        if vm["name"] == "Controller":
             ansible_master_ip = vm["ip"]
             break
 
@@ -124,7 +114,7 @@ def configure_ansible_master():
 
     # Remove Ansible Master from target hosts
     target_vms = [
-        vm for vm in vms if vm["name"] != "Ansible CP" and vm["state"] == "start"
+        vm for vm in vms if vm["name"] != "Controller" and vm["state"] == "start"
     ]
 
     logger.info("Connecting to Ansible Master via SSH...")
@@ -133,13 +123,13 @@ def configure_ansible_master():
     ssh.connect(ansible_master_ip, username=BASE_VM_USERNAME, password=BASE_VM_PASSWORD)
 
     commands = [
-        "apt-get update -y",
-        "apt-get install -y ansible* python3-pip sshpass tree jq 7zip nmap docker.io docker-compose python3-distutils",
+        "apt-get install -y ansible-core python3-pip sshpass docker.io docker-compose nmap 7zip yq jq tree",
         "ansible-galaxy collection install ansible.posix community.general",
         "echo '[defaults]' | tee /root/ansible.cfg",
         "echo 'inventory = /root/inventory' | tee -a /root/ansible.cfg",
         "echo 'deprecation_warnings = False' | tee -a /root/ansible.cfg",
         "echo '[all]' | tee /root/inventory",
+        "echo 'become=True' | tee -a /root/ansible.cfg",
     ]
 
     for vm in target_vms:
@@ -219,7 +209,7 @@ def execute_playbooks():
         vms = json.load(f)
 
     ansible_master_ip = next(
-        (vm["ip"] for vm in vms if vm["name"] == "Ansible CP"), None
+        (vm["ip"] for vm in vms if vm["name"] == "Controller"), None
     )
 
     if not ansible_master_ip:
@@ -240,10 +230,23 @@ def execute_playbooks():
     except IOError:
         pass
 
+    pairs = dotenv_values(".env")
+
     for item in local_playbooks_dir.iterdir():
         if item.is_file() and item.suffix in {".yml", ".yaml"}:
             logger.info(f"Uploading {item.name} to Ansible Master...")
-            sftp.put(str(item), f"{remote_playbooks_dir}/{item.name}")
+
+            # Read original content (unchanged locally)
+            with open(item, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            # Replace ONLY in memory
+            for k, v in pairs.items():
+                content = content.replace("{{ " + k + " }}", v)
+
+            # Upload modified content directly, without altering local file
+            with sftp.file(f"{remote_playbooks_dir}/{item.name}", "w") as remote_file:
+                remote_file.write(content)
 
     sftp.close()
 
@@ -283,9 +286,9 @@ def execute_playbooks():
 
 
 if __name__ == "__main__":
-    create_vms()
-    boot_all_vms()
-    configure_ansible_master()
+    # create_vms()
+    # boot_all_vms()
+    # configure_ansible_master()
     execute_playbooks()
     # stop_all_vms()
     ...

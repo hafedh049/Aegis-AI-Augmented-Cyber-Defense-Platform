@@ -1,9 +1,29 @@
 ---
-- name: Install Grafana and Loki (Central)
-  hosts: Strike
-  become: true
+- name: Deploy Grafana and Loki Logging Stack
+  hosts: Arsenal
+  vars:
+    # Grafana vars
+    grafana_user: "{{ GRAFANA_USER }}"
+    grafana_password: "{{ GRAFANA_PASSWORD }}"
+    grafana_port: "{{ GRAFANA_PORT }}"
+    grafana_image: "{{ GRAFANA_IMAGE }}"
+    grafana_container_name: "{{ GRAFANA_CONTAINER_NAME }}"
+
+    # Loki vars
+    loki_port: "{{ LOKI_PORT }}"
+    loki_image: "{{ LOKI_IMAGE }}"
+    loki_container_name: "{{ LOKI_CONTAINER_NAME }}"
+
   tasks:
-    - name: Ensure logging directories exist
+    - name: Install python pip
+      command: apt install -y python3-pip
+
+    - name: Install setuptools
+      command: pip3 install --break-system-packages setuptools
+    # ============================================================
+    # Grafana and Loki Installation
+    # ============================================================
+    - name: "[LOGGING] Ensure logging directories exist"
       file:
         path: "{{ item }}"
         state: directory
@@ -17,19 +37,19 @@
         - /opt/logging/loki/compactor
         - /opt/logging/provisioning/datasources
 
-    - name: Create docker-compose.yml for Grafana+Loki
+    - name: "[LOGGING] Create docker-compose.yml for Grafana+Loki"
       copy:
         dest: /opt/logging/docker-compose.yml
         content: |
           version: "3"
           services:
             loki:
-              image: grafana/loki:2.9.0
-              container_name: loki
+              image: "{{ loki_image }}"
+              container_name: "{{ loki_container_name }}"
               user: "0:0"
               ports:
-                - "3100:3100"
-              command: -config.file=/etc/loki/local-config.yaml
+                - "{{ loki_port }}:{{ loki_port }}"
+              command: -config.file=/etc/loki/local-config.yaml -config.expand-env=true
               volumes:
                 - /opt/logging/loki-config.yaml:/etc/loki/local-config.yaml
                 - /opt/logging/loki/chunks:/loki/chunks
@@ -39,15 +59,15 @@
                 - /opt/logging/loki/compactor:/loki/compactor
 
             grafana:
-              image: grafana/grafana:10.4.2
-              container_name: grafana
+              image: "{{ grafana_image }}"
+              container_name: "{{ grafana_container_name }}"
               ports:
-                - "3000:3000"
+                - "{{ grafana_port }}:{{ grafana_port }}"
               environment:
-                - GF_SECURITY_ADMIN_USER=admin
-                - GF_SECURITY_ADMIN_PASSWORD=admin
+                GF_SECURITY_ADMIN_USER: "{{ grafana_user }}"
+                GF_SECURITY_ADMIN_PASSWORD: "{{ grafana_password }}"
               depends_on:
-                - loki
+                - "{{ loki_container_name }}"
               volumes:
                 - grafana-data:/var/lib/grafana
                 - /opt/logging/provisioning:/etc/grafana/provisioning
@@ -55,14 +75,14 @@
           volumes:
             grafana-data:
 
-    - name: Loki config file
+    - name: "[LOGGING] Loki config file"
       copy:
         dest: /opt/logging/loki-config.yaml
         content: |
           auth_enabled: false
 
           server:
-            http_listen_port: 3100
+            http_listen_port: {{ loki_port | int }}
 
           ingester:
             lifecycler:
@@ -111,7 +131,7 @@
             retention_deletes_enabled: true
             retention_period: 7d
 
-    - name: Add Loki datasource provisioning
+    - name: "[LOGGING] Add Loki datasource provisioning"
       copy:
         dest: /opt/logging/provisioning/datasources/loki.yaml
         content: |
@@ -120,10 +140,24 @@
             - name: Loki
               type: loki
               access: proxy
-              url: http://loki:3100
+              url: http://{{ loki_container_name }}:{{ loki_port }}
               isDefault: true
 
-    - name: Create systemd service for Grafana+Loki stack
+    - name: "[LOGGING] Install Docker and docker-compose (if not present)"
+      apt:
+        name:
+          - docker.io
+          - docker-compose
+        state: present
+        update_cache: yes
+
+    - name: "[LOGGING] Enable and start Docker service"
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: "[LOGGING] Create systemd service for Grafana+Loki stack"
       copy:
         dest: /etc/systemd/system/logging-stack.service
         mode: "0644"
@@ -137,17 +171,39 @@
           Type=oneshot
           RemainAfterExit=true
           WorkingDirectory=/opt/logging
-          ExecStart=docker-compose -f /opt/logging/docker-compose.yml up -d
-          ExecStop=docker-compose -f /opt/logging/docker-compose.yml down
+          ExecStart=/usr/bin/docker-compose -f /opt/logging/docker-compose.yml up -d
+          ExecStop=/usr/bin/docker-compose -f /opt/logging/docker-compose.yml down
+          TimeoutStartSec=0
 
           [Install]
           WantedBy=multi-user.target
 
-    - name: Reload systemd daemon
-      command: systemctl daemon-reexec
+    - name: "[LOGGING] Reload systemd daemon"
+      systemd:
+        daemon_reload: yes
 
-    - name: Enable logging stack service
+    - name: "[LOGGING] Enable and start logging stack service"
       systemd:
         name: logging-stack.service
         enabled: true
         state: started
+
+    - name: "[LOGGING] Wait for Grafana to be ready"
+      uri:
+        url: "http://localhost:{{ grafana_port }}/api/health"
+        method: GET
+        status_code: 200
+        timeout: 5
+      register: grafana_health
+      retries: 30
+      delay: 10
+      until: grafana_health.status == 200
+      ignore_errors: true
+
+    - name: "[LOGGING] Deployment complete"
+      debug:
+        msg: |
+          ✅ Grafana + Loki stack is running!
+          - Grafana: http://<host>:{{ grafana_port }} (user: {{ grafana_user }})
+          - Loki: http://<host>:{{ loki_port }}
+          - Configs stored in /opt/logging

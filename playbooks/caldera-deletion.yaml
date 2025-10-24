@@ -1,33 +1,76 @@
 ---
-- name: Uninstall MITRE CALDERA
-  hosts: Strike
-  gather_facts: false
+- name: COMPLETE WIPEOUT - Remove MITRE CALDERA Deployment & All Artifacts
+  hosts: Caldera
   vars:
-    caldera_dir: /opt/caldera
+    caldera_dir: "{{ CALDERA_DIR }}"
+    caldera_container_name: "{{ CALDERA_CONTAINER_NAME }}"
 
   tasks:
-    - name: Stop CALDERA service if running
-      systemd:
-        name: caldera
-        state: stopped
-        enabled: no
+    - name: Ensure required variables are defined
+      assert:
+        that:
+          - caldera_dir is defined
+          - caldera_container_name is defined
+        fail_msg: "CALDERA_DIR and CALDERA_CONTAINER_NAME must be defined."
+
+    # ------------------------------------------------------------
+    # STOP & REMOVE RUNNING CONTAINER
+    # ------------------------------------------------------------
+    - name: Stop CALDERA container (if running)
+      command: docker stop {{ caldera_container_name }}
       ignore_errors: true
 
-    - name: Disable and remove CALDERA systemd service
-      file:
-        path: /etc/systemd/system/caldera.service
-        state: absent
-
-    - name: Reload systemd after removing service
-      systemd:
-        daemon_reload: yes
-        daemon_reexec: yes
-
-    - name: Kill any stray CALDERA processes
-      shell: "pkill -f '{{ caldera_dir }}/server.py'"
+    - name: Remove CALDERA container
+      command: docker rm {{ caldera_container_name }}
       ignore_errors: true
 
-    - name: Remove CALDERA directory
+    # ------------------------------------------------------------
+    # TEAR DOWN DOCKER COMPOSE (if docker-compose.yml exists)
+    # ------------------------------------------------------------
+    - name: Run docker-compose down (if compose file exists)
+      command: docker-compose down --remove-orphans
+      args:
+        chdir: "{{ caldera_dir }}"
+      ignore_errors: true
+
+    # ------------------------------------------------------------
+    # REMOVE ALL CALDERA FILES & SENSITIVE ARTIFACTS
+    # ------------------------------------------------------------
+    - name: Remove Caldera data directory and all contents (including secrets.json, patched_local.yml, etc.)
       file:
         path: "{{ caldera_dir }}"
         state: absent
+
+    # ------------------------------------------------------------
+    # OPTIONAL: REMOVE DOCKER (commented out by default)
+    # ⚠️ Only enable if this host runs ONLY Caldera and you want full Docker removal
+    # ------------------------------------------------------------
+    # - name: [OPTIONAL] Purge Docker packages
+    #   apt:
+    #     name:
+    #       - docker.io
+    #       - docker-compose
+    #     state: absent
+    #     purge: yes
+    #   ignore_errors: true
+
+    # - name: [OPTIONAL] Remove Docker system directories
+    #   file:
+    #     path: "{{ item }}"
+    #     state: absent
+    #   loop:
+    #     - /var/lib/docker
+    #     - /etc/docker
+    #   ignore_errors: true
+
+    # ------------------------------------------------------------
+    # FINAL CONFIRMATION
+    # ------------------------------------------------------------
+    - name: Confirm successful wipeout
+      debug:
+        msg: |
+          🔥 FULL CALDERA WIPEOUT COMPLETE on {{ inventory_hostname }}.
+          - Container '{{ caldera_container_name }}' stopped and removed.
+          - Docker Compose project torn down.
+          - Entire directory '{{ caldera_dir }}' deleted (including secrets.json, patched configs, logs, etc.).
+          - No sensitive data should remain.

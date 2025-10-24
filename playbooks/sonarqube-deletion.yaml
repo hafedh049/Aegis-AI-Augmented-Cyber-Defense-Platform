@@ -1,36 +1,67 @@
-- name: Remove SonarQube completely
-  hosts: Strike
-  become: true
+---
+- name: COMPLETE WIPEOUT - Remove SonarQube (Docker-based) from Arsenal
+  hosts: Arsenal
+  vars:
+    sonarqube_container_name: "{{ SONARQUBE_CONTAINER_NAME }}"
+    sonarqube_project: "{{ SONARQUBE_PROJECT }}"
+
   tasks:
-    - name: Stop SonarQube systemd service
-      systemd:
-        name: sonarqube
+    - name: "[WIPEOUT] Ensure required variables are defined"
+      assert:
+        that:
+          - sonarqube_container_name is defined
+          - sonarqube_project is defined
+        fail_msg: "SONARQUBE_CONTAINER_NAME and SONARQUBE_PROJECT must be defined."
+
+    # ------------------------------------------------------------
+    # STOP & REMOVE CONTAINER
+    # ------------------------------------------------------------
+    - name: "[WIPEOUT] Stop SonarQube container (if running)"
+      docker_container:
+        name: "{{ sonarqube_container_name }}"
         state: stopped
-        enabled: no
       ignore_errors: true
 
-    - name: Remove SonarQube systemd service file
-      file:
-        path: /etc/systemd/system/sonarqube.service
+    - name: "[WIPEOUT] Remove SonarQube container"
+      docker_container:
+        name: "{{ sonarqube_container_name }}"
         state: absent
-      notify: reload systemd
-
-    - name: Stop and remove SonarQube containers
-      command: docker-compose -f /opt/sonarqube/docker-compose.yml down -v
-      args:
-        warn: false
       ignore_errors: true
 
-    - name: Remove SonarQube directory
+    # ------------------------------------------------------------
+    # REMOVE PERSISTENT DATA
+    # ------------------------------------------------------------
+    - name: "[WIPEOUT] Remove SonarQube data directories"
       file:
         path: /opt/sonarqube
         state: absent
 
-    - name: Remove saved project token
+    # ------------------------------------------------------------
+    # REMOVE TOKEN FILE
+    # ------------------------------------------------------------
+    - name: "[WIPEOUT] Remove project token file"
       file:
-        path: /root/aegis-token
+        path: "/root/{{ sonarqube_project | lower }}-token"
         state: absent
 
-  handlers:
-    - name: reload systemd
-      command: systemctl daemon-reload
+    # ------------------------------------------------------------
+    # OPTIONAL: REMOVE DOCKER IMAGE (commented by default)
+    # ------------------------------------------------------------
+    # - name: "[WIPEOUT] Remove SonarQube Docker image"
+    #   docker_image:
+    #     name: "{{ SONARQUBE_IMAGE }}"
+    #     tag: community
+    #     state: absent
+    #   ignore_errors: true
+
+    # ------------------------------------------------------------
+    # FINAL CONFIRMATION
+    # ------------------------------------------------------------
+    - name: "[WIPEOUT] Confirm successful cleanup"
+      debug:
+        msg: |
+          🔥 SonarQube has been completely removed from {{ inventory_hostname }}.
+          - Container '{{ sonarqube_container_name }}' deleted.
+          - Data in /opt/sonarqube erased (including logs, extensions, DB).
+          - Token file '/root/{{ sonarqube_project | lower }}-token' removed.
+          - No project data or credentials remain.

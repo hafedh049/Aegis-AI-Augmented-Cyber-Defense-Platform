@@ -1,0 +1,64 @@
+---
+- name: Remove Dockerized Dionaea Honeypot
+  hosts: HoneyNet
+  become: true
+  gather_facts: true
+
+  vars:
+    dionaea_container_name: "dionaea"
+    dionaea_image: "honeynet/dionaea:latest"
+    dionaea_data_dir: "/opt/dionaea/data"
+    dionaea_log_dir: "/opt/dionaea/log"
+    # set to false if you want to keep data/logs
+    purge_data_and_logs: true
+
+  tasks:
+    - name: Gather info about the Dionaea container (if present)
+      community.docker.docker_container_info:
+        name: "{{ dionaea_container_name }}"
+      register: dionaea_info
+      failed_when: false
+      changed_when: false
+
+    - name: Stop and remove Dionaea container (if present)
+      community.docker.docker_container:
+        name: "{{ dionaea_container_name }}"
+        state: absent
+        force_kill: true
+      when: dionaea_info is defined and (dionaea_info.container is defined and dionaea_info.container != {})
+
+    - name: Ensure any leftover container (by name) is absent (idempotent)
+      community.docker.docker_container:
+        name: "{{ dionaea_container_name }}"
+        state: absent
+        force_kill: true
+
+    - name: Remove Dionaea image (if present)
+      community.docker.docker_image:
+        name: "{{ dionaea_image }}"
+        state: absent
+      ignore_errors: true
+
+    - name: Remove dangling images (optional cleanup)
+      community.docker.docker_prune:
+        images: yes
+        volumes: no
+        networks: no
+        containers: no
+      when: ansible_facts['os_family'] is defined
+
+    - name: Delete Dionaea data and log directories (irreversible)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ dionaea_data_dir }}"
+        - "{{ dionaea_log_dir }}"
+      when: purge_data_and_logs | bool
+
+    - name: Display status — confirm removal
+      ansible.builtin.debug:
+        msg:
+          - "Container '{{ dionaea_container_name }}' removed (or did not exist)."
+          - "Image '{{ dionaea_image }}' removal attempted."
+          - "Data/logs removed: {{ purge_data_and_logs | bool }}"

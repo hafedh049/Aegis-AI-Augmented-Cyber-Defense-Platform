@@ -1,0 +1,89 @@
+---
+- name: Deploy Dockerized Dionaea Honeypot
+  hosts: HoneyNet
+  become: true
+  gather_facts: true
+
+  vars:
+    dionaea_container_name: "dionaea"
+    dionaea_image: "dinotools/dionaea:latest"
+    dionaea_data_dir: "/opt/dionaea/data"
+    dionaea_log_dir: "/opt/dionaea/log"
+    dionaea_ports:
+      - "21:21"
+      - "2222:22" # host 2222 -> container 22 (SSH mapped to 2222)
+      - "23:23"
+      - "25:25"
+      - "5353:53"
+      - "5353:53/udp"
+      - "69:69/udp"
+      - "80:80"
+      - "110:110"
+      - "135:135"
+      - "139:139"
+      - "143:143"
+      - "161:161/udp"
+      - "389:389"
+      - "443:443"
+      - "445:445"
+      - "5060:5060/udp"
+      - "1433:1433"
+      - "1723:1723"
+      - "1883:1883"
+      - "3306:3306"
+      - "3389:3389"
+      - "4444:4444"
+      - "5900:5900"
+      - "8080:8080"
+      - "27017:27017"
+
+  tasks:
+    - name: Create directories for Dionaea data and logs
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+        owner: root
+        group: root
+      loop:
+        - "{{ dionaea_data_dir }}"
+        - "{{ dionaea_log_dir }}"
+
+    - name: Pull Dionaea Docker image
+      community.docker.docker_image:
+        name: "{{ dionaea_image }}"
+        source: pull
+
+    - name: Stop and remove existing container if present
+      community.docker.docker_container:
+        name: "{{ dionaea_container_name }}"
+        state: absent
+        force_kill: true
+      ignore_errors: true
+
+    - name: Run Dionaea container
+      community.docker.docker_container:
+        name: "{{ dionaea_container_name }}"
+        image: "{{ dionaea_image }}"
+        restart_policy: always
+        network_mode: bridge
+        volumes:
+          - "{{ dionaea_data_dir }}:/data"
+          - "{{ dionaea_log_dir }}:/var/log/dionaea"
+        published_ports: "{{ dionaea_ports }}"
+        state: started
+        recreate: true
+
+    - name: Wait for container to be healthy (short sleep)
+      ansible.builtin.wait_for:
+        path: "{{ dionaea_log_dir }}"
+        timeout: 10
+
+    - name: Show running Dionaea container info
+      community.docker.docker_container_info:
+        name: "{{ dionaea_container_name }}"
+      register: dionaea_info
+
+    - name: Display Dionaea container info
+      ansible.builtin.debug:
+        var: dionaea_info

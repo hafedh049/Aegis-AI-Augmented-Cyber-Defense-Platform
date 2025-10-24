@@ -1,80 +1,58 @@
 [
   {
-    "deletion": "dvwa-deletion.yaml",
-    "installation": "dvwa-installation.yaml",
-    "name": "DVWA",
-    "execute_deletion": false,
-    "execute_installation": true
-  },
-  {
-    "deletion": "mongodb-deletion.yaml",
-    "installation": "mongodb-installation.yaml",
-    "name": "MongoDB",
-    "execute_deletion": false,
-    "execute_installation": true
-  },
-  {
-    "deletion": "neo4j-deletion.yaml",
-    "installation": "neo4j-installation.yaml",
-    "name": "Neo4j",
-    "execute_deletion": false,
-    "execute_installation": true
-  },
-  {
-    "deletion": "k3s-deletion.yaml",
-    "installation": "k3s-installation.yaml",
-    "name": "K3s",
-    "execute_deletion": false,
-    "execute_installation": true
-  },
-  {
-    "deletion": "cowrie-deletion.yaml",
-    "installation": "cowrie-installation.yaml",
-    "name": "Cowrie",
-    "execute_deletion": false,
-    "execute_installation": true
-  },
-
-  {
     "deletion": "caldera-deletion.yaml",
     "installation": "caldera-installation.yaml",
-    "name": "Caldera MITRE",
+    "name": "Caldera",
     "execute_deletion": false,
-    "execute_installation": true
-  },
-  {
-    "deletion": "grafana-loki-deletion.yaml",
-    "installation": "grafana-loki-installation.yaml",
-    "name": "Grafana Loki",
-    "execute_deletion": false,
-    "execute_installation": true
-  },
-  {
-    "deletion": "promtail-deletion.yaml",
-    "installation": "promtail-installation.yaml",
-    "name": "Promtail",
-    "execute_deletion": false,
-    "execute_installation": true
+    "execute_installation": false
   },
   {
     "deletion": "n8n-deletion.yaml",
     "installation": "n8n-installation.yaml",
     "name": "N8N",
     "execute_deletion": false,
-    "execute_installation": true
-  },
-  {
-    "deletion": "trivy-deletion.yaml",
-    "installation": "trivy-installation.yaml",
-    "name": "Trivy",
-    "execute_deletion": false,
-    "execute_installation": true
+    "execute_installation": false
   },
   {
     "deletion": "sonarqube-deletion.yaml",
     "installation": "sonarqube-installation.yaml",
     "name": "SonarQube",
     "execute_deletion": false,
-    "execute_installation": true
+    "execute_installation": false
+  },
+  {
+    "deletion": "grafana-loki-deletion.yaml",
+    "installation": "grafana-loki-installation.yaml",
+    "name": "Grafana Loki",
+    "execute_deletion": false,
+    "execute_installation": false
+  },
+  {
+    "deletion": "promtail-deletion.yaml",
+    "installation": "promtail-installation.yaml",
+    "name": "Promtail",
+    "execute_deletion": false,
+    "execute_installation": false
+  },
+  {
+    "deletion": "dionaea-deletion.yaml",
+    "installation": "dionaea-installation.yaml",
+    "name": "Dionaea",
+    "execute_deletion": false,
+    "execute_installation": false
+  },
+  {
+    "deletion": "trivy-deletion.yaml",
+    "installation": "trivy-installation.yaml",
+    "name": "Trivy",
+    "execute_deletion": false,
+    "execute_installation": false
+  },
+  {
+    "deletion": "kubernetes-deletion.yaml",
+    "installation": "kubernetes-installation.yaml",
+    "name": "Kubernetes",
+    "execute_deletion": false,
+    "execute_installation": false
   }
 ]

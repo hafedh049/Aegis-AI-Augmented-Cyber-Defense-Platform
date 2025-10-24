@@ -1,26 +1,61 @@
 ---
-- name: Remove n8n installation
-  hosts: Strike
-  become: true
+- name: COMPLETE WIPEOUT - Remove n8n Automation Platform and All Data
+  hosts: Arsenal
+  vars:
+    n8n_dir: "{{ N8N_DIR }}"
+    n8n_container_name: "{{ N8N_CONTAINER_NAME }}"
+
   tasks:
-    - name: Stop n8n container
-      docker_container:
-        name: n8n
-        state: absent
-        force_kill: yes
+    - name: "[WIPEOUT] Ensure required variables are defined"
+      assert:
+        that:
+          - n8n_dir is defined
+          - n8n_container_name is defined
+        fail_msg: "N8N_DIR and N8N_CONTAINER_NAME must be defined."
 
-    - name: Remove n8n Docker volumes (optional)
-      docker_volume:
-        name: n8n-data
-        state: absent
+    # ------------------------------------------------------------
+    # STOP & REMOVE CONTAINER
+    # ------------------------------------------------------------
+    - name: "[WIPEOUT] Stop n8n container (if running)"
+      command: docker stop {{ n8n_container_name }}
+      ignore_errors: true
 
-    - name: Remove n8n docker-compose.yml
+    - name: "[WIPEOUT] Remove n8n container"
+      command: docker rm {{ n8n_container_name }}
+      ignore_errors: true
+
+    # ------------------------------------------------------------
+    # TEAR DOWN DOCKER COMPOSE STACK
+    # ------------------------------------------------------------
+    - name: "[WIPEOUT] Run docker-compose down with volume removal (if compose file exists)"
+      command: docker-compose -f "{{ n8n_dir }}/docker-compose.yml" down --volumes --remove-orphans
+      args:
+        chdir: "{{ n8n_dir }}"
+      ignore_errors: true
+
+    # ------------------------------------------------------------
+    # REMOVE DOCKER VOLUME (fallback in case compose down missed it)
+    # ------------------------------------------------------------
+    - name: "[WIPEOUT] Remove n8n_data Docker volume (if exists)"
+      command: docker volume rm n8n_data
+      ignore_errors: true
+
+    # ------------------------------------------------------------
+    # DELETE ALL n8n FILES & WORKFLOWS
+    # ------------------------------------------------------------
+    - name: "[WIPEOUT] Remove entire n8n directory (configs, workflows, data)"
       file:
-        path: /opt/n8n/docker-compose.yml
+        path: "{{ n8n_dir }}"
         state: absent
 
-    - name: Remove n8n directory
-      file:
-        path: /opt/n8n
-        state: absent
-        recurse: yes
+    # ------------------------------------------------------------
+    # FINAL CONFIRMATION
+    # ------------------------------------------------------------
+    - name: "[WIPEOUT] Confirm successful cleanup"
+      debug:
+        msg: |
+          🔥 n8n has been completely removed from {{ inventory_hostname }}.
+          - Container '{{ n8n_container_name }}' deleted.
+          - Docker volume 'n8n_data' removed.
+          - Entire directory '{{ n8n_dir }}' erased (including all workflows and settings).
+          - No sensitive data or automation artifacts remain.

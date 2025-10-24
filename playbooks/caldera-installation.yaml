@@ -1,84 +1,482 @@
 ---
-- name: Install MITRE CALDERA
-  hosts: Strike
+# Full Caldera Server + Agent Deployment with PAW Persistence
+- name: Deploy Caldera Server + Agents with PAW Persistence
+  hosts: Caldera, HoneyNet
   become: true
+  gather_facts: true
   vars:
-    caldera_dir: /opt/caldera
-    caldera_venv: /opt/caldera/venv
-    caldera_port: 8888
+    # Keep these as-is
+    caldera_dir: "{{ CALDERA_DIR }}"
+    caldera_port: "{{ CALDERA_PORT }}"
+    caldera_red_user: "{{ CALDERA_RED_USER }}"
+    caldera_blue_user: "{{ CALDERA_BLUE_USER }}"
+    caldera_blue_api_key: "{{ CALDERA_BLUE_API_KEY }}"
+    caldera_red_api_key: "{{ CALDERA_RED_API_KEY }}"
+    caldera_password: "{{ CALDERA_PASSWORD }}"
+    caldera_host: "{{ CALDERA_HOST }}"
+    caldera_container_name: "{{ CALDERA_CONTAINER_NAME }}"
+    caldera_image: "{{ CALDERA_IMAGE }}"
 
   tasks:
-    - name: Install system dependencies
+    # -------------- Caldera Deployment ----------------
+    - name: Install apt dependencies
       apt:
         name:
-          - git
-          - python3
-          - python3-venv
           - python3-pip
-          - build-essential
-          - nodejs # <-- install Node.js from apt
-          - npm # <-- install npm from apt
-        update_cache: yes
+          - docker.io
+          - docker-compose
+          - jq
+          - curl
+        state: present
+      when: inventory_hostname == "Caldera"
 
-    - name: Delete old CALDERA directory
-      command: rm -rf "{{ caldera_dir }}"
-      args:
-        creates: "{{ caldera_venv }}"
+    - name: Ensure docker is started & enabled
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+      when: inventory_hostname == "Caldera"
 
-    - name: Clone CALDERA repository
-      git:
-        repo: "https://github.com/mitre/caldera.git"
-        dest: "{{ caldera_dir }}"
-        version: master
-        recursive: yes
-        force: yes
+    - name: Ensure caldera directory exists
+      file:
+        path: "{{ caldera_dir }}"
+        state: directory
+        mode: "0755"
+      when: inventory_hostname == "Caldera"
 
-    - name: Create Python virtual environment
-      command: python3 -m venv "{{ caldera_venv }}"
-      args:
-        creates: "{{ caldera_venv }}"
+    - name: Create Docker Compose (Caldera)
+      copy:
+        dest: "{{ caldera_dir }}/docker-compose.yml"
+        content: |
+          version: '3'
+          services:
+            caldera:
+              image: "{{ caldera_image }}"
+              container_name: "{{ caldera_container_name }}"
+              restart: always
+              ports:
+                - "{{ caldera_port }}:{{ caldera_port }}"
+      when: inventory_hostname == "Caldera"
 
-    - name: Install Python requirements inside venv
-      command: "{{ caldera_venv }}/bin/pip install --break-system-packages -r requirements.txt"
+    - name: Launch Caldera Compose (if not running)
+      when: inventory_hostname == "Caldera"
+      shell: |
+        if ! docker ps --format '{{'{{.Names}}'}}' | grep -w "{{ caldera_container_name }}"; then
+          docker-compose up -d
+        fi
       args:
         chdir: "{{ caldera_dir }}"
 
-    - name: Create CALDERA systemd service
+    - name: Wait briefly for Caldera to start
+      when: inventory_hostname == "Caldera"
+      pause:
+        seconds: 10
+
+    # Patch local.yml
+    - name: Copy current local.yml from container if exists
+      when: inventory_hostname == "Caldera"
+      command: docker cp {{ caldera_container_name }}:/usr/src/app/conf/local.yml {{ caldera_dir }}/local.yml
+      register: cp_local
+      ignore_errors: true
+
+    - name: Slurp original local.yml if exists
+      slurp:
+        src: "{{ caldera_dir }}/local.yml"
+      register: original_local_slurp
+      when: inventory_hostname == "Caldera" and cp_local is succeeded
+
+    - name: Decode original local.yml
+      set_fact:
+        original_local_raw: "{{ original_local_slurp.content | b64decode }}"
+      when: inventory_hostname == "Caldera" and original_local_slurp is defined and original_local_slurp.content is defined
+
+    - name: Parse original local.yml as YAML
+      set_fact:
+        original_local_dict: "{{ original_local_raw | default('') | from_yaml }}"
+      when: inventory_hostname == "Caldera" and original_local_raw is defined
+
+    - name: Patch HTTP + users + API keys
+      when: inventory_hostname == "Caldera"
+      set_fact:
+        patched_local_dict: >-
+          {{
+            (original_local_dict | default({})) |
+            combine({
+              'app.contact.http': {
+                'enabled': True,
+                'host': '0.0.0.0',
+                'port': caldera_port | int
+              },
+              'users': {
+                'red': { 'red': caldera_password },
+                'blue': { 'blue': caldera_password }
+              },
+              'api_key_red': caldera_red_api_key,
+              'api_key_blue': caldera_blue_api_key
+            }, recursive=True)
+          }}
+
+    - name: Render patched_local.yml on host
+      when: inventory_hostname == "Caldera"
       copy:
-        dest: /etc/systemd/system/caldera.service
+        dest: "{{ caldera_dir }}/patched_local.yml"
+        content: "{{ patched_local_dict | to_nice_yaml(indent=2) }}"
+        mode: "0600"
+        force: yes
+
+    - name: Push patched local.yml into container
+      when: inventory_hostname == "Caldera"
+      command: docker cp {{ caldera_dir }}/patched_local.yml {{ caldera_container_name }}:/usr/src/app/conf/local.yml
+
+    - name: Restart Caldera container
+      when: inventory_hostname == "Caldera"
+      command: docker restart {{ caldera_container_name }}
+
+    - name: Wait for Caldera HTTP to respond
+      when: inventory_hostname == "Caldera"
+      uri:
+        url: "{{ caldera_host }}:{{ caldera_port }}"
+        method: GET
+        return_content: no
+        status_code: [200, 301]
+        timeout: 10
+      register: caldera_response_after_patch
+      retries: 30
+      delay: 5
+      until: caldera_response_after_patch is succeeded
+
+    - name: Extract creds & API keys
+      when: inventory_hostname == "Caldera"
+      set_fact:
+        extracted_data:
+          host: "{{ patched_local_dict['app.contact.http'].host }}"
+          port: "{{ patched_local_dict['app.contact.http'].port }}"
+          users:
+            red:
+              username: "red"
+              password: "{{ patched_local_dict.users.red.red }}"
+              api_key: "{{ patched_local_dict.api_key_red }}"
+            blue:
+              username: "blue"
+              password: "{{ patched_local_dict.users.blue.blue }}"
+              api_key: "{{ patched_local_dict.api_key_blue }}"
+
+    - name: Save secrets.json
+      when: inventory_hostname == "Caldera"
+      copy:
+        dest: "{{ caldera_dir }}/secrets.json"
+        content: "{{ extracted_data | to_nice_json(indent=2) }}"
+        mode: "0600"
+
+    # ---------------------------------
+    # Deploy the Python agent to HoneyNet FIRST
+    # Then check for registration
+    # ---------------------------------
+    - name: Ensure python3 and pip are installed on HoneyNet
+      apt:
+        name:
+          - python3
+          - python3-pip
+        state: present
+      when: inventory_hostname == "HoneyNet"
+
+    - name: Create PAW storage directory on HoneyNet
+      file:
+        path: /etc/caldera
+        state: directory
+        mode: "0700"
+      when: inventory_hostname == "HoneyNet"
+
+    - name: Upload HoneyNet agent script with PAW persistence
+      copy:
+        dest: /usr/local/bin/caldera_agent.py
+        mode: "0755"
+        content: |
+          #!/usr/bin/env python3
+          #!/usr/bin/env python3
+          # Caldera HTTP-contact agent with PAW persistence - SYSTEMD COMPATIBLE
+          import time, json, base64, socket, os, requests, netifaces, pwd, sys
+
+          CALDERA_SERVER = "http://{{ hostvars['Caldera']['ansible_default_ipv4']['address'] }}:{{ caldera_port }}"
+          API_KEY = "{{ caldera_red_api_key }}"
+          AGENT_NAME = "HoneyNet-{{ ansible_hostname }}"
+          SLEEP = 30
+          PAW_FILE = "/etc/caldera/agent_paw.json"
+
+          def get_username():
+              """Get current username reliably in systemd environment"""
+              try:
+                  # Method 1: Get effective user ID (ALWAYS works)
+                  uid = os.geteuid()
+                  return pwd.getpwuid(uid).pw_name
+              except Exception as e:
+                  print(f"Warning: Could not get username via geteuid(): {e}")
+                  return "root"  # Fallback to root since service runs as root
+
+          def get_home_directory():
+              """Get home directory reliably in systemd environment"""
+              try:
+                  # Method 1: Get from password database
+                  uid = os.geteuid()
+                  return pwd.getpwuid(uid).pw_dir
+              except Exception:
+                  return "/root"  # Fallback
+
+          def debug_environment():
+              """Debug information to understand the runtime environment"""
+              print("=== ENVIRONMENT DEBUG ===")
+              print(f"PID: {os.getpid()}")
+              print(f"UID: {os.getuid()}, EUID: {os.geteuid()}")
+              print(f"GID: {os.getgid()}, EGID: {os.getegid()}")
+              print(f"CWD: {os.getcwd()}")
+              print(f"Python path: {sys.executable}")
+              print(f"USER env: {os.getenv('USER', 'NOT SET')}")
+              print(f"HOME env: {os.getenv('HOME', 'NOT SET')}")
+              print("=========================")
+
+          def load_paw():
+              """Load PAW from persistent storage"""
+              try:
+                  if os.path.exists(PAW_FILE):
+                      with open(PAW_FILE, 'r') as f:
+                          data = json.load(f)
+                          paw = data.get('paw')
+                          if paw:
+                              print(f"Loaded existing PAW: {paw}")
+                              return paw
+              except Exception as e:
+                  print(f"Error loading PAW: {e}")
+              return None
+
+          def save_paw(paw):
+              """Save PAW to persistent storage"""
+              try:
+                  with open(PAW_FILE, 'w') as f:
+                      json.dump({'paw': paw, 'agent_name': AGENT_NAME}, f)
+                  os.chmod(PAW_FILE, 0o600)
+                  print(f"Saved PAW: {paw}")
+              except Exception as e:
+                  print(f"Failed to save PAW: {e}")
+
+          def get_ips():
+              ips = []
+              for iface in netifaces.interfaces():
+                  for a in netifaces.ifaddresses(iface).get(netifaces.AF_INET, []):
+                      ip = a.get("addr")
+                      if ip and not ip.startswith("127."):
+                          ips.append(ip)
+              try:
+                  # fallback to hostname resolution
+                  ips.append(socket.gethostbyname(socket.gethostname()))
+              except Exception:
+                  pass
+              return list(dict.fromkeys(ips))
+
+          def make_profile(paw=None):
+              prof = {
+                  "server": CALDERA_SERVER,
+                  "platform": "linux",
+                  "host": socket.gethostname(),
+                  "group": "red",
+                  "executors": ["sh"],
+                  "exe_name": "agent-linux",
+                  "host_ip_addrs": get_ips(),
+                  "username": get_username(),
+                  "location": get_home_directory(),
+                  "display_name": AGENT_NAME
+              }
+              if paw:
+                  prof["paw"] = paw
+              return base64.b64encode(json.dumps(prof).encode()).decode()
+
+          def beacon(paw=None):
+              data = make_profile(paw)
+              headers = {"KEY": API_KEY, "Content-Type": "text/plain"}
+              print(f"Sending beacon to {CALDERA_SERVER}")
+              resp = requests.post(f"{CALDERA_SERVER}/beacon", data=data, headers=headers, timeout=15)
+              return resp
+
+          if __name__ == "__main__":
+              print("=== CALDERA AGENT STARTING (SYSTEMD COMPATIBLE) ===")
+              debug_environment()
+              
+              # Try to load existing PAW first
+              paw = load_paw()
+              print(f"Starting agent with PAW: {paw}")
+              
+              beacon_count = 0
+              while True:
+                  beacon_count += 1
+                  print(f"=== Beacon attempt #{beacon_count} ===")
+                  try:
+                      r = beacon(paw)
+                      print(f"Beacon status: {r.status_code}")
+                      if r.status_code in (200, 201):
+                          try:
+                              decoded = base64.b64decode(r.content).decode()
+                              print(f"Response received: {decoded}")
+                              job = json.loads(decoded)
+                              new_paw = job.get("paw")
+                              if new_paw and new_paw != paw:
+                                  paw = new_paw
+                                  save_paw(paw)
+                                  print(f"Updated to new PAW: {paw}")
+                          except Exception as e:
+                              print(f"Failed to decode/parse response: {e}")
+                      else:
+                          print(f"Beacon response text: {r.text}")
+                  except Exception as e:
+                      print(f"Beacon failed: {e}")
+                      print(f"Error type: {type(e).__name__}")
+                  time.sleep(SLEEP)
+      when: inventory_hostname == "HoneyNet"
+
+    - name: Install required python packages on HoneyNet
+      pip:
+        name:
+          - requests
+          - netifaces
+        executable: pip3
+        extra_args: "--break-system-packages"
+      when: inventory_hostname == "HoneyNet"
+
+    - name: Create systemd service with proper environment
+      copy:
+        dest: /etc/systemd/system/caldera-agent.service
         content: |
           [Unit]
-          Description=MITRE CALDERA
-          After=network.target
+          Description=Caldera minimal agent
+          After=network-online.target
+          Wants=network-online.target
 
           [Service]
           Type=simple
+          ExecStart=/usr/bin/python3 /usr/local/bin/caldera_agent.py
+          WorkingDirectory=/tmp
+          Restart=always
+          RestartSec=10
           User=root
-          WorkingDirectory={{ caldera_dir }}
-          ExecStart={{ caldera_venv }}/bin/python {{ caldera_dir }}/server.py --insecure --build
-          Restart=on-failure
+          Group=root
+
+          # Set critical environment variables
+          Environment=USER=root
+          Environment=LOGNAME=root
+          Environment=HOME=/root
+          Environment=PYTHONUNBUFFERED=1
+
+          # Logging
+          StandardOutput=journal
+          StandardError=journal
+
+          # Wait for network
+          ExecStartPre=/bin/sleep 5
 
           [Install]
           WantedBy=multi-user.target
-        mode: "0644"
+      when: inventory_hostname == "HoneyNet"
 
-    - name: Reload systemd
+    - name: Enable and start Caldera agent service on HoneyNet
       systemd:
         daemon_reload: yes
-
-    - name: Enable and start CALDERA service
-      systemd:
-        name: caldera
-        state: started
+        name: caldera-agent.service
         enabled: yes
+        state: started
+      when: inventory_hostname == "HoneyNet"
 
-    - name: Wait for CALDERA to be available
-      wait_for:
-        host: 127.0.0.1
-        port: "{{ caldera_port }}"
-        delay: 5
-        timeout: 300
+    # ---------------------------------
+    # Wait for agent registration and get PAW
+    # ---------------------------------
+    - name: Wait for agent to register with Caldera
+      when: inventory_hostname == "Caldera"
+      shell: |
+        curl -s -H "KEY: {{ caldera_red_api_key }}" \
+          "{{ caldera_host }}:{{ caldera_port }}/api/v2/agents" | \
+        jq -r --arg NAME "{{ hostvars['HoneyNet']['ansible_hostname'] }}" \
+          '.[] | select(.host==$NAME) | .paw' | head -1
+      register: agent_paw_check
+      until: agent_paw_check.stdout != ""
+      retries: 20
+      delay: 10
+      changed_when: false
 
-    - name: Display CALDERA access information
+    - name: Set final agent PAW
+      when: inventory_hostname == "Caldera"
+      set_fact:
+        final_agent_paw: "{{ agent_paw_check.stdout }}"
+
+    - name: Update HoneyNet agent with the obtained PAW
+      when: inventory_hostname == "HoneyNet"
+      copy:
+        dest: /etc/caldera/agent_paw.json
+        content: |
+          {
+            "paw": "{{ hostvars['Caldera']['final_agent_paw'] }}",
+            "agent_name": "HoneyNet-{{ ansible_hostname }}"
+          }
+        mode: "0600"
+
+    - name: Restart agent service to use the persisted PAW
+      when: inventory_hostname == "HoneyNet"
+      systemd:
+        name: caldera-agent.service
+        state: restarted
+
+    - name: Display final agent information
+      when: inventory_hostname == "Caldera"
       debug:
-        msg: "CALDERA is running. Access it at http://{{ ansible_host | default(inventory_hostname) }}:{{ caldera_port }} with default credentials (red/admin)."
+        msg: |
+          Agent successfully deployed and registered!
+          Display Name: HoneyNet-{{ hostvars['HoneyNet']['ansible_hostname'] }}
+          PAW: {{ final_agent_paw }}
+          Caldera Server: {{ caldera_host }}:{{ caldera_port }}
+
+    # ---------------------------------
+    # Verify agent is working
+    # ---------------------------------
+    - name: Verify agent is active in Caldera
+      when: inventory_hostname == "Caldera"
+      shell: |
+        curl -s -H "KEY: {{ caldera_red_api_key }}" \
+          "{{ caldera_host }}:{{ caldera_port }}/api/v2/agents" | \
+        jq -r --arg NAME "{{ hostvars['HoneyNet']['ansible_hostname'] }}" \
+          '.[] | select(.host==$NAME) | {paw: .paw, last_seen: .last_seen, platform: .platform, status: .status}'
+      register: agent_verify
+      changed_when: false
+
+    - name: Show agent verification details
+      when: inventory_hostname == "Caldera"
+      debug:
+        var: agent_verify.stdout
+
+    # ---------------------------------
+    # Optional: Run a test ability on the agent
+    # ---------------------------------
+    - name: Run test ability on HoneyNet agent
+      when:
+        - inventory_hostname == "Caldera"
+        - final_agent_paw | default('') != ''
+      block:
+        - name: Find a safe recon ability
+          shell: |
+            curl -s -X POST -H "KEY: {{ caldera_red_api_key }}" -H "Content-Type: application/json" \
+            -d '{"index":"abilities"}' "{{ caldera_host }}:{{ caldera_port }}/api/rest" | \
+            jq -r '.[] | select(.executors[]? | (.platform=="linux" or .name=="sh")) | select(.technique_id? | test("T1082|T1033|T1059")) | .ability_id' | head -1
+          register: test_ability
+          changed_when: false
+
+        - debug:
+            var: test_ability
+
+        - name: Execute test ability if found
+          when: test_ability
+          shell: |
+            curl -s -X POST -H "KEY: {{ caldera_red_api_key }}" -H "Content-Type: application/json" \
+            -d '{"paw":"{{ final_agent_paw }}","ability_id":"{{ test_ability.stdout }}","obfuscator":"plain-text"}' \
+            "{{ caldera_host }}:{{ caldera_port }}/plugin/access/exploit"
+          register: ability_execution
+          changed_when: false
+
+        - name: Show test execution result
+          when: inventory_hostname == "Caldera" and test_ability.stdout | default('') != ''
+          debug:
+            msg: "Test ability {{ test_ability.stdout }} executed successfully"
